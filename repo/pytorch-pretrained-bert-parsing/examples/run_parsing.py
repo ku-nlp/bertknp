@@ -1419,7 +1419,12 @@ def main():
         if vocab_size is None:
             vocab_size = model.config.vocab_size + num_finetuning_added_tokens
         model.to(device)
-            
+        if args.local_rank != -1:
+            model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
+                                                              output_device=args.local_rank)
+        elif n_gpu > 1:
+            model = torch.nn.DataParallel(model)
+
         # read examples
         while True:
             if args.span_based_coreference is True:
