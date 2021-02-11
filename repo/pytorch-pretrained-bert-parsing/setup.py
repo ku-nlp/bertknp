@@ -53,11 +53,6 @@ setup(
                       'boto3',
                       'requests',
                       'tqdm'],
-    entry_points={
-      'console_scripts': [
-        "pytorch_pretrained_bert=pytorch_pretrained_bert.__main__:main"
-      ]
-    },
     python_requires='>=3.5.0',
     tests_require=['pytest'],
     classifiers=[

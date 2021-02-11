@@ -35,7 +35,7 @@ Install the following tools beforehand.
 $ echo "昨日訪れた下鴨神社の参道はかなり暗かった。" | jumanpp -s 1 | bin/bertknp
 ```
 
-- By default, a dependency tree is output. If you need detailed information, use the `-tab` option in the same way as KNP.
+- By default, a dependency tree is output. If you need detailed information, use ``the `-tab` option in the same way as KNP.
 - The python in your PATH is used. If you want to use the python in your virtual environment, specify by `-p [python path]`.
 - You can use a CPU or a GPU. If you use a GPU and have a limited GPU memory, specify multiple GPUs as follows:
     ```bash
