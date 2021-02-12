@@ -13,47 +13,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Run BERT on Parsing."""
+from __future__ import absolute_import, division, print_function
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
-import sys
 import argparse
-from collections import defaultdict, namedtuple
-import logging
-import json
-import math
 import io
+import logging
 import os
 import random
-import pickle
-import copy
-from tqdm import tqdm, trange
+import sys
+from collections import defaultdict, namedtuple
 
 import numpy as np
 import torch
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
-from torch.utils.data.distributed import DistributedSampler
-from torch.nn.utils.rnn import pad_sequence
-
-from pytorch_pretrained_bert.tokenization import whitespace_tokenize, BasicTokenizer, BertTokenizer
+from pyknp import KNP, TList
+from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from pytorch_pretrained_bert.modeling import BertForParsing
 from pytorch_pretrained_bert.optimization import BertAdam
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+from pytorch_pretrained_bert.tokenization import BertTokenizer
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data.distributed import DistributedSampler
+from tqdm import tqdm, trange
 
 from convert_examples_to_features_utils import get_tokenized_tokens
 from input_features import InputFeatures
-from pyknp import KNP, TList
 
-logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s', 
-                    datefmt = '%m/%d/%Y %H:%M:%S',
-                    level = logging.INFO)
 logger = logging.getLogger(__name__)
 
 # for POS list
 POS = {}
 REV_POS = {}
+
 
 class ParsingExample(object):
     """A single training/test example for parsing."""
@@ -76,22 +66,24 @@ class ParsingExample(object):
         self.gold_words = gold_words
         self.comment = comment
         self.h2z = h2z
-        
+
         if self.h2z is True:
             from copy import deepcopy
             import zenhan
             self.words_orig = deepcopy(self.words)
-            self.words = [ zenhan.h2z(word) for word in words ]
-            
+            self.words = [zenhan.h2z(word) for word in words]
+
     def __str__(self):
         return self.__repr__()
 
     def __repr__(self):
         s = ""
-        s += "id: %s" % (printable_text(self.example_id))
-        s += ", word: %s" % (printable_text(" ".join(self.words)))
-        s += ", head: %s" % (printable_text(" ".join(self.heads)))
+        # TODO: Resolve import error
+        # s += "id: %s" % (printable_text(self.example_id))
+        # s += ", word: %s" % (printable_text(" ".join(self.words)))
+        # s += ", head: %s" % (printable_text(" ".join(self.heads)))
         return s
+
 
 class PasExample(object):
     """A single training/test example for pas analysis."""
@@ -109,17 +101,17 @@ class PasExample(object):
         self.arguments_set = arguments_set
         self.ng_arg_ids_set = ng_arg_ids_set
         self.comment = comment
-        
+
     def __str__(self):
         return self.__repr__()
 
     def __repr__(self):
         s = ""
-        s += "id: %s" % (printable_text(self.example_id))
-        s += ", word: %s" % (printable_text(" ".join(self.words)))
-        s += ", arguments: %s" % (printable_text(" ".join(self.arguments_set)))
+        # TODO: Resolve import error
+        # s += "id: %s" % (printable_text(self.example_id))
+        # s += ", word: %s" % (printable_text(" ".join(self.words)))
+        # s += ", arguments: %s" % (printable_text(" ".join(self.arguments_set)))
         return s
-
 
 
 class TokenLabelVocabulary(object):
@@ -128,10 +120,10 @@ class TokenLabelVocabulary(object):
         self.num_label = num_label
         self.label_to_index = {}
         self.index_to_label = []
-        
+
         self.read_examples(train_examples)
         self.add_indices(train_examples)
-        
+
     def read_examples(self, train_examples):
         for train_example in train_examples:
             for tag in train_example.token_tags[self.namespace]:
@@ -140,11 +132,11 @@ class TokenLabelVocabulary(object):
                 if tag not in self.label_to_index:
                     self.label_to_index[tag] = len(self.index_to_label)
                     self.index_to_label.append(tag)
-                    
+
         if self.num_label is None:
             self.num_label = len(self.index_to_label)
         else:
-            assert(self.num_label == len(self.index_to_label))
+            assert (self.num_label == len(self.index_to_label))
 
     def add_indices(self, examples):
         for example in examples:
@@ -153,6 +145,7 @@ class TokenLabelVocabulary(object):
                     example.token_tag_indices[self.namespace].append(-1)
                 else:
                     example.token_tag_indices[self.namespace].append(self.label_to_index[tag])
+
 
 def get_head_ids_types(example, feature, result, max_seq_length):
     head_ids = {}
@@ -170,12 +163,14 @@ def get_head_ids_types(example, feature, result, max_seq_length):
         dpnd_types[line_num] = items[7]
     return head_ids, dpnd_types
 
+
 def get_sentence_str(example):
     sentence_str = ''
     for line_num, line in enumerate(example.lines):
         items = line.split("\t")
         sentence_str += items[1]
     return sentence_str
+
 
 def modify_knp_for_tag_or_bunsetsu(tags, head_ids, dpnd_types, mode):
     mrph_id2tag = {}
@@ -218,6 +213,7 @@ def modify_knp_for_tag_or_bunsetsu(tags, head_ids, dpnd_types, mode):
                     # children要更新?
                     break
 
+
 def modify_knp(knp_result, head_ids, dpnd_types):
     tags = knp_result.tag_list()
     bnsts = knp_result.bnst_list()
@@ -228,18 +224,21 @@ def modify_knp(knp_result, head_ids, dpnd_types):
     # modify bnst dependencies
     modify_knp_for_tag_or_bunsetsu(bnsts, head_ids, dpnd_types, 'bunsetsu')
 
+
 def sprint_tag_tree(knp_result):
     tlist = TList()
     for tag in knp_result.tag_list():
         tlist.push_tag(tag)
     return tlist.sprint_tree()
 
-def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length, output_tree=False):
+
+def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
+                              output_tree=False):
     # convert a result to KNP format
     knp_result = knp_dpnd.parse(get_sentence_str(all_examples[0]))
     knp_result.comment = all_examples[0].comment
     head_ids, dpnd_types = get_head_ids_types(all_examples[0], all_features[0], all_results[0], max_seq_length)
-    modify_knp(knp_result, head_ids, dpnd_types);
+    modify_knp(knp_result, head_ids, dpnd_types)
 
     # add predicate-argument structures by KNP
     knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
@@ -249,12 +248,14 @@ def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, al
         writer.write(knp_result_new.all())
     return knp_result_new
 
+
 def read_pos_list(pos_list_file):
     with open(pos_list_file, encoding='utf-8') as poslist:
         for line in poslist:
             items = line.strip().split('\t')
             POS[items[0]] = items[1]
             REV_POS[items[1]] = items[0]
+
 
 def get_pos(pos, spos):
     if spos == '*':
@@ -267,7 +268,8 @@ def get_pos(pos, spos):
     if key in POS:
         return POS[key]
     else:
-        assert('Unknown POS')
+        assert 'Unknown POS'
+
 
 def jpp2conll_one_sentence(buf):
     output_lines = []
@@ -283,31 +285,33 @@ def jpp2conll_one_sentence(buf):
         items = line.strip().split('\t')
 
         if prev_id == items[1]:
-            continue # skip the same id
+            continue  # skip the same id
         else:
             result.append(str(items[1]))
             prev_id = items[1]
-        result.append(items[5]) # midasi
-        result.append(items[8]) # genkei
-        conll_pos = get_pos(items[9], items[11]) # hinsi, bunrui
+        result.append(items[5])  # midasi
+        result.append(items[8])  # genkei
+        conll_pos = get_pos(items[9], items[11])  # hinsi, bunrui
         result.append(conll_pos)
         result.append(conll_pos)
         result.append('_')
         if len(items) > 19:
-            result.append(items[18]) # head
-            result.append(items[19]) # dpnd_type
+            result.append(items[18])  # head
+            result.append(items[19])  # dpnd_type
         else:
-            result.append('0') # head
-            result.append('D') # dpnd_type (dummy)
+            result.append('0')  # head
+            result.append('D')  # dpnd_type (dummy)
         result.append('_')
         result.append('_')
         output_lines.append('\t'.join(result) + '\n')
     return ''.join(output_lines) + '\n'
 
+
 def read_parsing_examples(input_file, is_training,
                           parsing=False,
                           word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
-                          estimate_dep_label=False, use_gold_segmentation_in_test=False, use_gold_pos_in_test=False, h2z=False, knp_mode=False):
+                          estimate_dep_label=False, use_gold_segmentation_in_test=False, use_gold_pos_in_test=False,
+                          h2z=False, knp_mode=False):
     """Read a file into a list of ParsingExample."""
     multi_sentences = True  # If you use from pyknp, you should set this variable to False
     if knp_mode:
@@ -340,14 +344,19 @@ def read_parsing_examples(input_file, is_training,
             buf = buf_all
         else:
             buf = jpp2conll_one_sentence(buf)
-    return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging, feats_tagging, estimate_dep_label, use_gold_pos_in_test, use_gold_pos_in_test, h2z)
+    return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging,
+                                          feats_tagging, estimate_dep_label, use_gold_pos_in_test, use_gold_pos_in_test,
+                                          h2z)
+
 
 def read_parsing_examples_from_buf(buf, is_training,
                                    parsing=False,
-                                   word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
-                                   estimate_dep_label=False, use_gold_segmentation_in_test=False, use_gold_pos_in_test=False, h2z=False):
+                                   word_segmentation=False, pos_tagging=False, subpos_tagging=False,
+                                   feats_tagging=False,
+                                   estimate_dep_label=False, use_gold_segmentation_in_test=False,
+                                   use_gold_pos_in_test=False, h2z=False):
     """Read a buffer into a list of ParsingExample."""
-    
+
     examples = []
     example_id = 0
 
@@ -365,9 +374,9 @@ def read_parsing_examples_from_buf(buf, is_training,
             if word_segmentation is True or use_gold_segmentation_in_test is True:
                 if is_training is True:
                     # convert word to char indices (except -1 and 0 (Root))
-                    heads = [ word_to_char_index[head - 1] + 1 if head != -1 and head != 0 else head for head in heads ]
+                    heads = [word_to_char_index[head - 1] + 1 if head != -1 and head != 0 else head for head in heads]
                 else:
-                    heads = [ -1 for head in heads ]
+                    heads = [-1 for head in heads]
             example = ParsingExample(
                 example_id,
                 words,
@@ -388,11 +397,11 @@ def read_parsing_examples_from_buf(buf, is_training,
 
         items = line.split("\t")
         word = items[1]
-        head = int(items[6])            
+        head = int(items[6])
         if word_segmentation is True or use_gold_segmentation_in_test is True:
             if is_training is False:
                 head = -1
-                if use_gold_pos_in_test is False:                    
+                if use_gold_pos_in_test is False:
                     items[3] = -1
                     items[4] = -1
                 if estimate_dep_label is True:
@@ -426,9 +435,10 @@ def read_parsing_examples_from_buf(buf, is_training,
 
     return examples
 
+
 def get_outputs_for_word_segmentation(word, head, items, word_to_char_index,
                                       is_training=True,
-                                      word_segmentation=False, 
+                                      word_segmentation=False,
                                       parsing=False,
                                       char_offset=None,
                                       pos_tagging=False,
@@ -437,7 +447,7 @@ def get_outputs_for_word_segmentation(word, head, items, word_to_char_index,
                                       estimate_dep_label=False):
     chars = list(word)
     char_num = len(chars)
-                
+
     _heads = []
     _token_tags = defaultdict(list)
     for i, char in enumerate(list(word)):
@@ -457,7 +467,7 @@ def get_outputs_for_word_segmentation(word, head, items, word_to_char_index,
                 _token_tags["feats"].append(items[5])
             if estimate_dep_label is True:
                 _token_tags["dep_label"].append(items[7])
-            word_to_char_index.append(i + char_offset)            
+            word_to_char_index.append(i + char_offset)
         else:
             _heads.append(-1)
             if pos_tagging is True:
@@ -468,12 +478,13 @@ def get_outputs_for_word_segmentation(word, head, items, word_to_char_index,
                 _token_tags["feats"].append(-1)
             if estimate_dep_label is True:
                 _token_tags["dep_label"].append(-1)
-        
+
     return chars, _token_tags, _heads
-    
+
+
 def get_word_segmentation_tag(i, char_num, is_training):
     """ BIE tagging """
-    
+
     if is_training is False:
         return -1
 
@@ -483,11 +494,12 @@ def get_word_segmentation_tag(i, char_num, is_training):
         return "E"
     else:
         return "I"
-    
+
+
 def read_pas_examples(input_file, is_training, num_case, cases,
                       coreference=False):
     """Read a file into a list of PasExample."""
-    
+
     examples = []
     example_id = 0
     comment = None
@@ -511,18 +523,18 @@ def read_pas_examples(input_file, is_training, num_case, cases,
                     ng_arg_ids_set=ng_arg_ids_set,
                     comment=comment)
                 examples.append(example)
-                
+
                 example_id += 1
                 words, arguments_set, ng_arg_ids_set, lines = [], [], [], []
                 comment = None
                 continue
-            
-            items = line.split("\t")            
+
+            items = line.split("\t")
             word = items[1]
             argument_string = items[5]
             ng_arg_string = items[8]
             if argument_string == "_":
-                arguments = [ -1 for _ in range(num_case) ]
+                arguments = [-1 for _ in range(num_case)]
                 ng_arg_ids = []
             else:
                 arguments = []
@@ -531,10 +543,10 @@ def read_pas_examples(input_file, is_training, num_case, cases,
                     assert cases[i] == case
                     arguments.append(argument_index)
                 if ng_arg_string != "_":
-                    ng_arg_ids = [ int(ng_arg_id) for ng_arg_id in ng_arg_string.split("/") ]
+                    ng_arg_ids = [int(ng_arg_id) for ng_arg_id in ng_arg_string.split("/")]
                 else:
                     ng_arg_ids = []
-                    
+
             coreference_string = None
             if coreference is True:
                 coreference_string = items[6]
@@ -544,7 +556,7 @@ def read_pas_examples(input_file, is_training, num_case, cases,
                     arguments.append("NA")
                 else:
                     arguments.append(coreference_string)
-                    
+
             if is_training is False:
                 if argument_string != "_":
                     # ガ:55%C,ヲ:57,ニ:NULL,ガ２:NULL
@@ -555,7 +567,7 @@ def read_pas_examples(input_file, is_training, num_case, cases,
                             argument_index = "MASKED"
                         arguments.append("{}:{}".format(case, argument_index))
                     items[5] = ",".join(arguments)
-                    
+
                 if coreference is True:
                     if coreference_string != "_":
                         items[6] = "MASKED"
@@ -565,11 +577,13 @@ def read_pas_examples(input_file, is_training, num_case, cases,
             arguments_set.append(arguments)
             ng_arg_ids_set.append(ng_arg_ids)
             lines.append(line)
-            
+
     return examples
 
+
 def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size,
-                                 is_training, pas_analysis=False, word_segmentation=False, use_gold_segmentation_in_test=False,
+                                 is_training, pas_analysis=False, word_segmentation=False,
+                                 use_gold_segmentation_in_test=False,
                                  num_case=None, num_special_tokens=1, special_tokens=None, coreference=False):
     """Loads a data file into a list of `InputBatch`s."""
 
@@ -579,7 +593,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
     num_case_w_coreference = num_case
     if coreference is True:
         num_case_w_coreference += 1
-        
+
     for (example_index, example) in enumerate(examples):
         # The -3 accounts for [CLS], [SEP], ROOT
         # max_tokens_for_doc = max_seq_length - 3
@@ -597,7 +611,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         tokens.append("[CLS]")
         segment_ids.append(0)
         if pas_analysis is True:
-            arguments_set.append([ -1 for _ in range(num_case_w_coreference)])
+            arguments_set.append([-1 for _ in range(num_case_w_coreference)])
             ng_arg_ids_set.append([])
         else:
             heads.append(-1)
@@ -605,24 +619,24 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
             for namespace in example.token_tag_indices:
                 token_tag_indices[namespace].append(-1)
         ##
-            
+
         for j, token in enumerate(all_tokens):
             tokens.append(token)
             if word_segmentation is True or use_gold_segmentation_in_test is True:
                 for namespace in example.token_tag_indices:
                     token_tag_indices[namespace].append(example.token_tag_indices[namespace][tok_to_orig_index[j]])
-                
+
             if pas_analysis is True:
                 arguments = []
                 if is_training is False or token.startswith("##") is True:
-                    arguments_set.append([ -1 for _ in range(num_case_w_coreference)])
+                    arguments_set.append([-1 for _ in range(num_case_w_coreference)])
                 else:
                     for k, argument_index in enumerate(example.arguments_set[tok_to_orig_index[j]]):
                         # -1 or normal
                         if isinstance(argument_index, int) or argument_index.isdigit() is True:
                             # ng_arg_id (except for coreference resolution)
                             if (coreference is False or (coreference is True and k != num_case_w_coreference - 1)) and \
-                                   int(argument_index) in example.ng_arg_ids_set[tok_to_orig_index[j]]:
+                                    int(argument_index) in example.ng_arg_ids_set[tok_to_orig_index[j]]:
                                 logger.debug("ng_arg_id: {} {} {}".format(example.comment, token, argument_index))
                                 argument_index = -1
                             # normal
@@ -636,7 +650,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
                                 argument_index = -1
                             # special token
                             else:
-                                argument_index = max_seq_length - num_special_tokens + special_tokens.index(argument_index)
+                                argument_index = max_seq_length - num_special_tokens + special_tokens.index(
+                                    argument_index)
                         arguments.append(argument_index)
 
                     arguments_set.append(arguments)
@@ -645,7 +660,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
                 if token.startswith("##") is True:
                     ng_arg_ids_set.append([])
                 else:
-                    ng_arg_ids_set.append( [ orig_to_tok_index[ng_arg_id - 1] + 1 for ng_arg_id in example.ng_arg_ids_set[tok_to_orig_index[j]]])
+                    ng_arg_ids_set.append([orig_to_tok_index[ng_arg_id - 1] + 1 for ng_arg_id in
+                                           example.ng_arg_ids_set[tok_to_orig_index[j]]])
             # parsing
             else:
                 if is_training is False:
@@ -666,7 +682,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         ## SEP
         tokens.append("[SEP]")
         if pas_analysis is True:
-            arguments_set.append([ -1 for _ in range(num_case_w_coreference)])
+            arguments_set.append([-1 for _ in range(num_case_w_coreference)])
             ng_arg_ids_set.append([])
         else:
             heads.append(-1)
@@ -687,8 +703,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
             input_ids.append(0)
             input_mask.append(0)
             if pas_analysis is True:
-                arguments_set.append([ -1 for _ in range(num_case_w_coreference)])
-                ng_arg_ids_set.append([])                
+                arguments_set.append([-1 for _ in range(num_case_w_coreference)])
+                ng_arg_ids_set.append([])
             else:
                 heads.append(-1)
             if word_segmentation is True or use_gold_segmentation_in_test is True:
@@ -699,21 +715,22 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         if pas_analysis is True:
             for i in range(num_special_tokens):
                 input_ids.append(vocab_size + i)
-                input_mask.append(1)                
-                arguments_set.append([ -1 for _ in range(num_case_w_coreference)])
-                ng_arg_ids_set.append([])                
+                input_mask.append(1)
+                arguments_set.append([-1 for _ in range(num_case_w_coreference)])
+                ng_arg_ids_set.append([])
                 segment_ids.append(0)
         else:
             # ROOT
             input_ids.append(vocab_size)
             input_mask.append(1)
-            heads.append(-1)        
+            heads.append(-1)
             segment_ids.append(0)
             if word_segmentation is True or use_gold_segmentation_in_test is True:
                 for namespace in example.token_tag_indices:
                     token_tag_indices[namespace].append(-1)
 
-        assert len(input_ids) == max_seq_length, "input_ids_length ({}) is greater than max_seq_length ({})".format(len(input_ids), max_seq_length)
+        assert len(input_ids) == max_seq_length, "input_ids_length ({}) is greater than max_seq_length ({})".format(
+            len(input_ids), max_seq_length)
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
         if pas_analysis is True:
@@ -724,7 +741,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
                 assert len(token_tag_indices[namespace]) == max_seq_length
 
             assert len(heads) == max_seq_length
-        
+
         if example_index < 20:
             logger.info("*** Example ***")
             logger.info("unique_id: %s" % (unique_id))
@@ -738,9 +755,11 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
                 "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
             if pas_analysis is True:
                 logger.info(
-                    "arguments: %s" % " ".join([ ",".join( [ str(arg) for arg in arguments ]) for arguments in arguments_set]))
+                    "arguments: %s" % " ".join(
+                        [",".join([str(arg) for arg in arguments]) for arguments in arguments_set]))
                 logger.info(
-                    "ng_arg_ids_set: %s" % " ".join( [ ",".join( [ str(x) for x in ng_arg_ids ]) for ng_arg_ids in ng_arg_ids_set]))
+                    "ng_arg_ids_set: %s" % " ".join(
+                        [",".join([str(x) for x in ng_arg_ids]) for ng_arg_ids in ng_arg_ids_set]))
             else:
                 logger.info(
                     "heads: %s" % " ".join([str(x) for x in heads]))
@@ -760,15 +779,19 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
                 segment_ids=segment_ids,
                 heads=heads if pas_analysis is False else None,
                 arguments_set=arguments_set if pas_analysis is True else None,
-                ng_arg_ids_set=[[ 1 if x in ng_arg_ids else 0 for x in range(max_seq_length) ] for ng_arg_ids in ng_arg_ids_set ] if pas_analysis is True else None,
+                ng_arg_ids_set=[[1 if x in ng_arg_ids else 0 for x in range(max_seq_length)] for ng_arg_ids in
+                                ng_arg_ids_set] if pas_analysis is True else None,
                 token_tag_indices=token_tag_indices))
         unique_id += 1
 
     return features
 
+
 RawResult = namedtuple("RawResult",
-                       ["unique_id", "heads", "topk_heads", "topk_dep_labels", "arguments_set", "token_tags", "top_spans", "antecedent_indices", "predicted_antecedents",
+                       ["unique_id", "heads", "topk_heads", "topk_dep_labels", "arguments_set", "token_tags",
+                        "top_spans", "antecedent_indices", "predicted_antecedents",
                         "antecedent_labels_set"])
+
 
 def write_predictions(all_examples, all_features, all_results, output_prediction_file, max_seq_length,
                       knp_dpnd, knp_case,
@@ -787,7 +810,8 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
 
     if knp_mode:
         writer = sys.stdout
-        from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length, output_tree)
+        from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
+                                  output_tree)
         writer.flush()
     else:
         writer = open(output_prediction_file, "w", encoding="utf-8")
@@ -801,13 +825,15 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
                 write_predictions_word_segmentation(example, result, feature, example_index, writer, max_seq_length,
                                                     token_label_vocabulary=token_label_vocabulary,
                                                     parsing=parsing,
-                                                    pos_tagging=pos_tagging, subpos_tagging=subpos_tagging, feats_tagging=feats_tagging,
+                                                    pos_tagging=pos_tagging, subpos_tagging=subpos_tagging,
+                                                    feats_tagging=feats_tagging,
                                                     estimate_dep_label=estimate_dep_label,
-                                                    use_gold_segmentation_in_test=use_gold_segmentation_in_test, use_gold_pos_in_test=use_gold_pos_in_test)
+                                                    use_gold_segmentation_in_test=use_gold_segmentation_in_test,
+                                                    use_gold_pos_in_test=use_gold_pos_in_test)
             else:
                 zp_index = 0
                 for line_num, line in enumerate(example.lines):
-                    items = line.split("\t")                 
+                    items = line.split("\t")
                     if pas_analysis is True:
                         items = output_pas_analysis(items, cases, all_results, all_features, example_index, line_num,
                                                     max_seq_length, num_special_tokens, special_tokens,
@@ -831,16 +857,20 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
             writer.write("\n")
         writer.close()
 
+
 class Word(object):
     def __init__(self, char_index):
         self.char_index = char_index
         self.string = ""
         self.char_indices = []
         self.parent_word_index = None
-        
+
+
 def write_predictions_word_segmentation(example, result, feature, example_index, writer, max_seq_length,
-                                        token_label_vocabulary=None, parsing=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
-                                        estimate_dep_label=False, use_gold_segmentation_in_test=False, use_gold_pos_in_test=False):
+                                        token_label_vocabulary=None, parsing=False, pos_tagging=False,
+                                        subpos_tagging=False, feats_tagging=False,
+                                        estimate_dep_label=False, use_gold_segmentation_in_test=False,
+                                        use_gold_pos_in_test=False):
     words, char_to_word_index = [], []
     if use_gold_segmentation_in_test is True:
         char_offset = 0
@@ -855,7 +885,8 @@ def write_predictions_word_segmentation(example, result, feature, example_index,
         # this "words" means characters
         for i, char in enumerate(example.words_orig if example.h2z is True else example.words):
             # B tag
-            if i == 0 or token_label_vocabulary["word_segmentation"].index_to_label[result.token_tags["word_segmentation"][feature.orig_to_tok_index[i] + 1]] == "B":
+            if i == 0 or token_label_vocabulary["word_segmentation"].index_to_label[
+                result.token_tags["word_segmentation"][feature.orig_to_tok_index[i] + 1]] == "B":
                 words.append(Word(i))
             words[-1].string += char
             words[-1].char_indices.append(i)
@@ -887,7 +918,7 @@ def write_predictions_word_segmentation(example, result, feature, example_index,
                     elif has_cycle(head_char_id, char_to_word_index, words, i) is True:
                         continue
                     else:
-                        word.parent_word_index = char_to_word_index[head_char_id - 1]                    
+                        word.parent_word_index = char_to_word_index[head_char_id - 1]
                         head_id = char_to_word_index[head_char_id - 1] + 1
                         if estimate_dep_label is True:
                             dep_label = result.topk_dep_labels[feature.orig_to_tok_index[word.char_index] + 1][k]
@@ -904,21 +935,24 @@ def write_predictions_word_segmentation(example, result, feature, example_index,
         if use_gold_pos_in_test is True:
             items = example.lines[i].split("\t")
         if pos_tagging is True:
-            pos = token_label_vocabulary["pos"].index_to_label[result.token_tags["pos"][feature.orig_to_tok_index[word.char_index] + 1]]
+            pos = token_label_vocabulary["pos"].index_to_label[
+                result.token_tags["pos"][feature.orig_to_tok_index[word.char_index] + 1]]
         else:
             if use_gold_pos_in_test is True:
                 pos = items[3]
             else:
                 pos = "dummy"
         if subpos_tagging is True:
-            subpos = token_label_vocabulary["subpos"].index_to_label[result.token_tags["subpos"][feature.orig_to_tok_index[word.char_index] + 1]]
+            subpos = token_label_vocabulary["subpos"].index_to_label[
+                result.token_tags["subpos"][feature.orig_to_tok_index[word.char_index] + 1]]
         else:
             if use_gold_pos_in_test is True:
                 subpos = items[4]
             else:
                 subpos = "_"
         if feats_tagging is True:
-            feats = token_label_vocabulary["feats"].index_to_label[result.token_tags["feats"][feature.orig_to_tok_index[word.char_index] + 1]]
+            feats = token_label_vocabulary["feats"].index_to_label[
+                result.token_tags["feats"][feature.orig_to_tok_index[word.char_index] + 1]]
         else:
             if use_gold_pos_in_test is True:
                 feats = items[5]
@@ -928,15 +962,18 @@ def write_predictions_word_segmentation(example, result, feature, example_index,
             dep_label = token_label_vocabulary["dep_label"].index_to_label[dep_label]
         else:
             dep_label = "dummy"
-            
-        writer.write("{index}\t{word}\t{word}\t{pos}\t{subpos}\t{feats}\t{head}\t{dep_label}\t_\t_\n".format(index=i + 1,
-                                                                                                             word=word.string,
-                                                                                                             pos=pos,
-                                                                                                             subpos=subpos,
-                                                                                                             feats=feats,
-                                                                                                             head=head_id,
-                                                                                                             dep_label=dep_label))
-        
+
+        writer.write(
+            "{index}\t{word}\t{word}\t{pos}\t{subpos}\t{feats}\t{head}\t{dep_label}\t_\t_\n".format(
+                index=i + 1,
+                word=word.string,
+                pos=pos,
+                subpos=subpos,
+                feats=feats,
+                head=head_id,
+                dep_label=dep_label))
+
+
 def has_cycle(head_char_id, char_to_word_index, words, target_word_index):
     head_word_index = char_to_word_index[head_char_id - 1]
     while True:
@@ -950,16 +987,19 @@ def has_cycle(head_char_id, char_to_word_index, words, target_word_index):
         head_word_index = words[head_word_index].parent_word_index
 
     return False
-    
+
+
 def output_pas_analysis(items, cases, all_results, all_features, example_index, line_num,
                         max_seq_length, num_special_tokens, special_tokens,
                         coreference=False):
     if items[5] != "_":
         # ガ:55%C,ヲ:57,ニ:NULL,ガ２:NULL
-        orig_arguments = { (arg_string.split(":", 1))[0]:(arg_string.split(":", 1))[1] for arg_string in items[5].split(",") }
+        orig_arguments = {(arg_string.split(":", 1))[0]: (arg_string.split(":", 1))[1] for arg_string in
+                          items[5].split(",")}
         argument_strings = []
 
-        for case, argument_string in zip(cases, all_results[example_index].arguments_set[all_features[example_index].orig_to_tok_index[line_num] + 1]):
+        for case, argument_string in zip(cases, all_results[example_index].arguments_set[
+            all_features[example_index].orig_to_tok_index[line_num] + 1]):
             if coreference is True and case == "=":
                 continue
 
@@ -982,27 +1022,32 @@ def output_pas_analysis(items, cases, all_results, all_features, example_index, 
         items[5] = ",".join(argument_strings)
 
     if coreference is True and items[6] == "MASKED":
-        argument_string = all_results[example_index].arguments_set[all_features[example_index].orig_to_tok_index[line_num] + 1][-1]
+        argument_string = \
+            all_results[example_index].arguments_set[all_features[example_index].orig_to_tok_index[line_num] + 1][-1]
         # special
         if argument_string >= max_seq_length - num_special_tokens:
-            argument_string = special_tokens[argument_string - max_seq_length + num_special_tokens ]
+            argument_string = special_tokens[argument_string - max_seq_length + num_special_tokens]
         else:
             argument_string = all_features[example_index].tok_to_orig_index[argument_string - 1] + 1
         items[6] = str(argument_string)
 
     return items
 
+
 def output_chinese_zero(items, result, example, zp_index):
     if items[2] != "_":
         candidate_strings = []
         # 1-15%0,1-4%0,1-2%0, ..
-        for candidates_labels, antecedent_label in zip(example.candidates_labels_set[zp_index], result.antecedent_labels_set[zp_index]):
-            candidate_strings.append("{}-{}%{:.5f}".format(candidates_labels[0], candidates_labels[1], antecedent_label[1]))
+        for candidates_labels, antecedent_label in zip(example.candidates_labels_set[zp_index],
+                                                       result.antecedent_labels_set[zp_index]):
+            candidate_strings.append(
+                "{}-{}%{:.5f}".format(candidates_labels[0], candidates_labels[1], antecedent_label[1]))
 
         items[2] = ",".join(candidate_strings)
 
     return items
-        
+
+
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
         Copy the parameters optimized on CPU/RAM back to the model on GPU
@@ -1012,6 +1057,7 @@ def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
             logger.error("name_opti != name_model: {} {}".format(name_opti, name_model))
             raise ValueError
         param_model.data.copy_(param_opti.data)
+
 
 def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_nan=False):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -1031,6 +1077,7 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
         else:
             param_opti.grad = None
     return is_nan
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -1070,8 +1117,8 @@ def main():
                         default=False,
                         action='store_true',
                         help="Whether not to use CUDA when available")
-    parser.add_argument('--seed', 
-                        type=int, 
+    parser.add_argument('--seed',
+                        type=int,
                         default=42,
                         help="random seed for initialization")
     parser.add_argument('--gradient_accumulation_steps',
@@ -1107,28 +1154,36 @@ def main():
                         help="Case strings")
     parser.add_argument("--parsing", default=False, action='store_true', help="Perform parsing.")
     parser.add_argument("--word_segmentation", default=False, action='store_true', help="Perform word segmentation.")
-    parser.add_argument("--use_gold_segmentation_in_test", default=False, action='store_true', help="Use gold segmentations in testing")
+    parser.add_argument("--use_gold_segmentation_in_test", default=False, action='store_true',
+                        help="Use gold segmentations in testing")
     parser.add_argument("--use_gold_pos_in_test", default=False, action='store_true', help="Use gold POSs in testing")
     parser.add_argument("--pos_tagging", default=False, action='store_true', help="Perform POS tagging.")
     parser.add_argument("--subpos_tagging", default=False, action='store_true', help="Perform SubPOS tagging.")
     parser.add_argument("--feats_tagging", default=False, action='store_true', help="Perform Feats tagging.")
-    parser.add_argument("--parsing_algorithm", choices=["biaffine", "zhang"], default="zhang", help="biaffine [Dozat+ 17] or zhang [Zhang+ 16]")
-    parser.add_argument("--estimate_dep_label", default=False, action='store_true', help="Estimate dependency labels.")        
-    parser.add_argument("--pas_analysis", default=False, action='store_true', help="Perform predicate argument structure anslysis.")
-    parser.add_argument("--coreference", default=False, action='store_true', help="Perform coreference resolution (Japanese).")
-    parser.add_argument("--span_based_coreference", default=False, action='store_true', help="Perform coreference resolution (English).")
-    parser.add_argument("--chinese_zero", default=False, action='store_true', help="Perform zero anaphora resolution (Chinese).")    
+    parser.add_argument("--parsing_algorithm", choices=["biaffine", "zhang"], default="zhang",
+                        help="biaffine [Dozat+ 17] or zhang [Zhang+ 16]")
+    parser.add_argument("--estimate_dep_label", default=False, action='store_true', help="Estimate dependency labels.")
+    parser.add_argument("--pas_analysis", default=False, action='store_true',
+                        help="Perform predicate argument structure anslysis.")
+    parser.add_argument("--coreference", default=False, action='store_true',
+                        help="Perform coreference resolution (Japanese).")
+    parser.add_argument("--span_based_coreference", default=False, action='store_true',
+                        help="Perform coreference resolution (English).")
+    parser.add_argument("--chinese_zero", default=False, action='store_true',
+                        help="Perform zero anaphora resolution (Chinese).")
     parser.add_argument("--num_max_text_length",
                         type=int,
                         default=None,
                         help="Maximum number of text length")
     parser.add_argument("--use_training_data_ratio", default=None, type=float, help="Used training data ratio.")
-    parser.add_argument("--lang", default="ja", type=str, help="Language.")    
+    parser.add_argument("--lang", default="ja", type=str, help="Language.")
     parser.add_argument("--h2z", default=False, action='store_true', help="Hankaku to Zenkaku.")
-    parser.add_argument("--knp_mode", default=False, action='store_true', help="KNP mode (stdin: jumanpp -s 1, stdout: KNP format.")
+    parser.add_argument("--knp_mode", default=False, action='store_true',
+                        help="KNP mode (stdin: jumanpp -s 1, stdout: KNP format.")
     parser.add_argument("--output_tree", default=False, action='store_true', help="Output trees.")
-    parser.add_argument("--pos_list", default=None, type=str, help="Specify a pos.list file to convert a Juman++ file to CoNLL.")
-    
+    parser.add_argument("--pos_list", default=None, type=str,
+                        help="Specify a pos.list file to convert a Juman++ file to CoNLL.")
+
     args = parser.parse_args()
     args = postprocess_args(args)
 
@@ -1152,13 +1207,13 @@ def main():
         torch.distributed.init_process_group(backend='nccl')
         if args.fp16:
             logger.info("16-bits training currently not supported in distributed training")
-            args.fp16 = False # (see https://github.com/pytorch/pytorch/pull/13496)
+            args.fp16 = False  # (see https://github.com/pytorch/pytorch/pull/13496)
     logger.info("device: {} n_gpu: {}, distributed training: {}, 16-bits trainiing: {}".format(
         device, n_gpu, bool(args.local_rank != -1), args.fp16))
 
     if args.gradient_accumulation_steps < 1:
         raise ValueError("Invalid gradient_accumulation_steps parameter: {}, should be >= 1".format(
-                            args.gradient_accumulation_steps))
+            args.gradient_accumulation_steps))
 
     args.train_batch_size = int(args.train_batch_size / args.gradient_accumulation_steps)
 
@@ -1182,8 +1237,9 @@ def main():
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=False, lang=args.lang)
 
-    num_expand_vocab, finetuning_added_tokens, num_finetuning_added_tokens, special_tokens, num_special_tokens = preprocess_vocab(tokenizer, args)
-        
+    num_expand_vocab, finetuning_added_tokens, num_finetuning_added_tokens, special_tokens, num_special_tokens = \
+        preprocess_vocab(tokenizer, args)
+
     cases, num_case = None, 1
     if args.case_string is not None:
         cases = args.case_string.split(",")
@@ -1197,23 +1253,30 @@ def main():
     output_token_label_vocabulary = None
     if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
         output_token_label_vocabulary = os.path.join(args.output_dir, "token_label_vocabulary.bin")
-    
+
     if args.do_train:
         if args.span_based_coreference is True:
-            from span_based_coreference import read_span_base_coreference_examples, convert_examples_to_features_span_based_coreference
-            train_examples = read_span_base_coreference_examples(input_file=args.train_file, is_training=True, num_max_text_length=args.num_max_text_length)
+            # TODO: Resolve import error
+            raise ImportError
+            # from span_based_coreference import read_span_base_coreference_examples, \
+            #     convert_examples_to_features_span_based_coreference
+            # train_examples = read_span_base_coreference_examples(input_file=args.train_file, is_training=True,
+            #                                                      num_max_text_length=args.num_max_text_length)
         elif args.chinese_zero is True:
-            from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
-            train_examples = read_chinese_zero_examples(input_file=args.train_file, is_training=True)
+            # TODO: Resolve import error
+            raise ImportError
+            # from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
+            # train_examples = read_chinese_zero_examples(input_file=args.train_file, is_training=True)
         elif args.pas_analysis is True:
             train_examples = read_pas_examples(
                 input_file=args.train_file, is_training=True, num_case=num_case, cases=cases,
-                coreference=args.coreference)    
+                coreference=args.coreference)
         else:
             train_examples = read_parsing_examples(
                 input_file=args.train_file, is_training=True,
                 parsing=args.parsing,
-                word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging, subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
+                word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+                subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
                 use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
                 estimate_dep_label=args.estimate_dep_label, h2z=args.h2z, knp_mode=args.knp_mode)
         if args.use_training_data_ratio is not None:
@@ -1223,7 +1286,8 @@ def main():
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
         if args.word_segmentation is True:
-            token_label_vocabulary["word_segmentation"] = TokenLabelVocabulary("word_segmentation", train_examples, num_label=3)
+            token_label_vocabulary["word_segmentation"] = TokenLabelVocabulary("word_segmentation", train_examples,
+                                                                               num_label=3)
         if args.pos_tagging is True:
             token_label_vocabulary["pos"] = TokenLabelVocabulary("pos", train_examples)
         if args.subpos_tagging is True:
@@ -1235,16 +1299,24 @@ def main():
 
         # Prepare model
         if args.span_based_coreference is True:
-            from pytorch_pretrained_bert.modeling_span_based_coreference_resolver import BertForSpanBasedCoreferenceResolver
-            model = BertForSpanBasedCoreferenceResolver.from_pretrained(args.bert_model,
-                                                                        cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+            # TODO: Resolve import error
+            raise ImportError
+            # from pytorch_pretrained_bert.modeling_span_based_coreference_resolver import \
+            #     BertForSpanBasedCoreferenceResolver
+            # model = BertForSpanBasedCoreferenceResolver.from_pretrained(
+            #     args.bert_model,
+            #     cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
         elif args.chinese_zero is True:
-            from pytorch_pretrained_bert.modeling_chinese_zero import BertForChineseZero
-            model = BertForChineseZero.from_pretrained(args.bert_model,
-                                                       cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+            # TODO: Resolve import error
+            raise ImportError
+            # from pytorch_pretrained_bert.modeling_chinese_zero import BertForChineseZero
+            # model = BertForChineseZero.from_pretrained(
+            #     args.bert_model,
+            #     cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
         else:
             model = BertForParsing.from_pretrained(args.bert_model,
-                                                   cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank),
+                                                   cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(
+                                                       args.local_rank),
                                                    pas_analysis=args.pas_analysis,
                                                    token_label_vocabulary=token_label_vocabulary,
                                                    num_case=num_case + 1 if args.coreference else num_case,
@@ -1255,10 +1327,10 @@ def main():
         if num_expand_vocab > 0:
             model.bert.expand_vocab(num_expand_vocab=num_expand_vocab)
             if num_finetuning_added_tokens > 0:
-                add_vocab(finetuning_added_tokens, tokenizer, model)                
+                add_vocab(finetuning_added_tokens, tokenizer, model)
 
         vocab_size = model.config.vocab_size + num_finetuning_added_tokens
-        
+
         if args.fp16:
             model.half()
         model.to(device)
@@ -1271,17 +1343,18 @@ def main():
         # Prepare optimizer
         if args.fp16:
             param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_()) \
-                                for n, param in model.named_parameters()]
+                               for n, param in model.named_parameters()]
         elif args.optimize_on_cpu:
             param_optimizer = [(n, param.clone().detach().to('cpu').requires_grad_()) \
-                                for n, param in model.named_parameters()]
+                               for n, param in model.named_parameters()]
         else:
             param_optimizer = list(model.named_parameters())
         no_decay = ['bias', 'gamma', 'beta']
         optimizer_grouped_parameters = [
-            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
+            {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)],
+             'weight_decay_rate': 0.01},
             {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
-            ]
+        ]
         t_total = num_train_steps
         if args.local_rank != -1:
             t_total = t_total // torch.distributed.get_world_size()
@@ -1292,19 +1365,23 @@ def main():
 
         global_step = 0
         if args.span_based_coreference is True:
-            train_features = convert_examples_to_features_span_based_coreference(
-                examples=train_examples,
-                tokenizer=tokenizer,
-                max_seq_length=args.max_seq_length,
-                is_training=True,
-                logger=logger)
+            # TODO: Resolve import error
+            raise ImportError
+            # train_features = convert_examples_to_features_span_based_coreference(
+            #     examples=train_examples,
+            #     tokenizer=tokenizer,
+            #     max_seq_length=args.max_seq_length,
+            #     is_training=True,
+            #     logger=logger)
         elif args.chinese_zero is True:
-            train_features = convert_examples_to_features_chinese_zero(
-                examples=train_examples,
-                tokenizer=tokenizer,
-                max_seq_length=args.max_seq_length,
-                is_training=True,
-                logger=logger)            
+            # TODO: Resolve import error
+            raise ImportError
+            # train_features = convert_examples_to_features_chinese_zero(
+            #     examples=train_examples,
+            #     tokenizer=tokenizer,
+            #     max_seq_length=args.max_seq_length,
+            #     is_training=True,
+            #     logger=logger)
         else:
             train_features = convert_examples_to_features(
                 examples=train_examples,
@@ -1329,29 +1406,39 @@ def main():
 
         # span_based_coreference
         if args.span_based_coreference is True:
-            all_spans = pad_sequence([ torch.tensor(f.spans, dtype=torch.long) for f in train_features], batch_first=True, padding_value=-1)
-            all_span_labels = pad_sequence([ torch.tensor(f.span_labels, dtype=torch.long) for f in train_features], batch_first=True, padding_value=(-1,-1))
-            all_is_mention_labels = pad_sequence([ torch.tensor(f.is_mention_labels, dtype=torch.long) for f in train_features], batch_first=True, padding_value=-1)
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_spans, all_span_labels, all_is_mention_labels)
+            all_spans = pad_sequence([torch.tensor(f.spans, dtype=torch.long) for f in train_features],
+                                     batch_first=True, padding_value=-1)
+            all_span_labels = pad_sequence([torch.tensor(f.span_labels, dtype=torch.long) for f in train_features],
+                                           batch_first=True, padding_value=(-1, -1))
+            all_is_mention_labels = pad_sequence(
+                [torch.tensor(f.is_mention_labels, dtype=torch.long) for f in train_features], batch_first=True,
+                padding_value=-1)
+            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_spans, all_span_labels,
+                                       all_is_mention_labels)
         # chinese_zero
         elif args.chinese_zero is True:
-            all_zps = pad_sequence([ torch.tensor(f.zps, dtype=torch.long) for f in train_features], batch_first=True, padding_value=-1)
+            all_zps = pad_sequence([torch.tensor(f.zps, dtype=torch.long) for f in train_features], batch_first=True,
+                                   padding_value=-1)
             all_candidates_labels_set = get_all_pad_candidates_labels_set(train_features)
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_zps, all_candidates_labels_set)
+            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_zps,
+                                       all_candidates_labels_set)
         # pas_analysis
         elif args.pas_analysis is True:
             all_arguments_set = torch.tensor([f.arguments_set for f in train_features], dtype=torch.long)
             all_ng_arg_ids_set = torch.tensor([f.ng_arg_ids_set for f in train_features], dtype=torch.long)
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_arguments_set, all_ng_arg_ids_set)
+            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_arguments_set,
+                                       all_ng_arg_ids_set)
         # word_segmentation, pos tagging, parsing
         else:
             all_heads = torch.tensor([f.heads for f in train_features], dtype=torch.long)
             if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
                 all_token_tags = []
                 for namespace in sorted(token_label_vocabulary.keys()):
-                    all_token_tags.append(torch.tensor([f.token_tag_indices[namespace] for f in train_features], dtype=torch.long))
+                    all_token_tags.append(
+                        torch.tensor([f.token_tag_indices[namespace] for f in train_features], dtype=torch.long))
                 if args.parsing is True:
-                    train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads, *all_token_tags)
+                    train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads,
+                                               *all_token_tags)
                 else:
                     train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, *all_token_tags)
             else:
@@ -1369,17 +1456,19 @@ def main():
             nb_tr_steps = 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 if n_gpu == 1:
-                    batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
-                    
+                    batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
+
                 if args.span_based_coreference is True:
                     input_ids, input_mask, segment_ids, spans, span_labels, is_mention_labels = batch
-                    loss = model(input_ids, segment_ids, input_mask, spans, span_labels=span_labels, is_mention_labels=is_mention_labels)
+                    loss = model(input_ids, segment_ids, input_mask, spans, span_labels=span_labels,
+                                 is_mention_labels=is_mention_labels)
                 elif args.chinese_zero is True:
                     input_ids, input_mask, segment_ids, zps, candidates_labels_set = batch
                     loss = model(input_ids, segment_ids, input_mask, zps, candidates_labels_set)
                 elif args.pas_analysis is True:
                     input_ids, input_mask, segment_ids, arguments_set, ng_arg_ids_set = batch
-                    loss = model(input_ids, segment_ids, input_mask, arguments_set=arguments_set, ng_arg_ids_set=ng_arg_ids_set)
+                    loss = model(input_ids, segment_ids, input_mask, arguments_set=arguments_set,
+                                 ng_arg_ids_set=ng_arg_ids_set)
                 else:
                     token_tags = None
                     if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
@@ -1394,38 +1483,46 @@ def main():
                     else:
                         input_ids, input_mask, segment_ids, heads = batch
                     loss = model(input_ids, segment_ids, input_mask, heads=heads, token_tags=token_tags)
-                tr_loss, nb_tr_steps, global_step = update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps, model, optimizer, global_step)
-                    
-            print("loss {}: {:.3f}".format(i, tr_loss/nb_tr_steps), file=sys.stderr)            
+                tr_loss, nb_tr_steps, global_step = update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps,
+                                                                      model, optimizer, global_step, param_optimizer)
 
-        # Save a trained model
+            print("loss {}: {:.3f}".format(i, tr_loss / nb_tr_steps), file=sys.stderr)
+
+            # Save a trained model
         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
         torch.save(model_to_save.state_dict(), output_model_file)
         if output_token_label_vocabulary is not None:
-            torch.save(token_label_vocabulary, output_token_label_vocabulary) 
+            torch.save(token_label_vocabulary, output_token_label_vocabulary)
 
     if args.do_predict:
         # Load a trained model that you have fine-tuned
         if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
             token_label_vocabulary = torch.load(output_token_label_vocabulary)
-        model_state_dict = torch.load(output_model_file, map_location='cpu' if n_gpu == 0 or args.no_cuda is True else None)
+        model_state_dict = torch.load(output_model_file,
+                                      map_location='cpu' if n_gpu == 0 or args.no_cuda is True else None)
         if args.span_based_coreference is True:
-            from pytorch_pretrained_bert.modeling_span_based_coreference_resolver import BertForSpanBasedCoreferenceResolver
-            model = BertForSpanBasedCoreferenceResolver.from_pretrained(args.bert_model, state_dict=model_state_dict)
+            # TODO: Resolve import error
+            raise ImportError
+            # from pytorch_pretrained_bert.modeling_span_based_coreference_resolver import \
+            #     BertForSpanBasedCoreferenceResolver
+            # model = BertForSpanBasedCoreferenceResolver.from_pretrained(args.bert_model, state_dict=model_state_dict)
         elif args.chinese_zero is True:
-            from pytorch_pretrained_bert.modeling_chinese_zero import BertForChineseZero
-            model = BertForChineseZero.from_pretrained(args.bert_model, state_dict=model_state_dict,
-                                                       num_expand_vocab=num_expand_vocab)
+            # TODO: Resolve import error
+            raise ImportError
+            # from pytorch_pretrained_bert.modeling_chinese_zero import BertForChineseZero
+            # model = BertForChineseZero.from_pretrained(args.bert_model, state_dict=model_state_dict,
+            #                                            num_expand_vocab=num_expand_vocab)
         else:
-            model = BertForParsing.from_pretrained(args.bert_model, state_dict=model_state_dict, num_expand_vocab=num_expand_vocab,
+            model = BertForParsing.from_pretrained(args.bert_model, state_dict=model_state_dict,
+                                                   num_expand_vocab=num_expand_vocab,
                                                    pas_analysis=args.pas_analysis,
                                                    token_label_vocabulary=token_label_vocabulary,
                                                    num_case=num_case + 1 if args.coreference else num_case,
                                                    parsing_algorithm=args.parsing_algorithm,
                                                    estimate_dep_label=args.estimate_dep_label)
         if args.do_train is False and num_finetuning_added_tokens > 0:
-            add_vocab(finetuning_added_tokens, tokenizer, model)                
-            
+            add_vocab(finetuning_added_tokens, tokenizer, model)
+
         if vocab_size is None:
             vocab_size = model.config.vocab_size + num_finetuning_added_tokens
         model.to(device)
@@ -1438,20 +1535,27 @@ def main():
         # read examples
         while True:
             if args.span_based_coreference is True:
-                from span_based_coreference import read_span_base_coreference_examples, convert_examples_to_features_span_based_coreference
-                eval_examples = read_span_base_coreference_examples(input_file=args.predict_file, is_training=False, num_max_text_length=args.num_max_text_length)
+                # TODO: Resolve import error
+                raise ImportError
+                # from span_based_coreference import read_span_base_coreference_examples, \
+                #     convert_examples_to_features_span_based_coreference
+                # eval_examples = read_span_base_coreference_examples(input_file=args.predict_file, is_training=False,
+                #                                                     num_max_text_length=args.num_max_text_length)
             elif args.chinese_zero is True:
-                from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero            
-                eval_examples = read_chinese_zero_examples(input_file=args.predict_file, is_training=False)            
+                # TODO: Resolve import error
+                raise ImportError
+                # from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
+                # eval_examples = read_chinese_zero_examples(input_file=args.predict_file, is_training=False)
             elif args.pas_analysis is True:
                 eval_examples = read_pas_examples(
                     input_file=args.predict_file, is_training=False, num_case=num_case, cases=cases,
-                    coreference=args.coreference)    
+                    coreference=args.coreference)
             else:
                 eval_examples = read_parsing_examples(
                     input_file=args.predict_file, is_training=False,
                     parsing=args.parsing,
-                    word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging, subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
+                    word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+                    subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
                     use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
                     use_gold_pos_in_test=args.use_gold_pos_in_test,
                     h2z=args.h2z, knp_mode=args.knp_mode)
@@ -1464,19 +1568,23 @@ def main():
 
             # convert examples to features
             if args.span_based_coreference is True:
-                eval_features = convert_examples_to_features_span_based_coreference(
-                    examples=eval_examples,
-                    tokenizer=tokenizer,
-                    max_seq_length=args.max_seq_length,
-                    is_training=False,
-                    logger=logger)
+                # TODO: Resolve import error
+                raise ImportError
+                # eval_features = convert_examples_to_features_span_based_coreference(
+                #     examples=eval_examples,
+                #     tokenizer=tokenizer,
+                #     max_seq_length=args.max_seq_length,
+                #     is_training=False,
+                #     logger=logger)
             elif args.chinese_zero is True:
-                eval_features = convert_examples_to_features_chinese_zero(
-                    examples=eval_examples,
-                    tokenizer=tokenizer,
-                    max_seq_length=args.max_seq_length,
-                    is_training=False,
-                    logger=logger)            
+                # TODO: Resolve import error
+                raise ImportError
+                # eval_features = convert_examples_to_features_chinese_zero(
+                #     examples=eval_examples,
+                #     tokenizer=tokenizer,
+                #     max_seq_length=args.max_seq_length,
+                #     is_training=False,
+                #     logger=logger)
             else:
                 eval_features = convert_examples_to_features(
                     examples=eval_examples,
@@ -1491,7 +1599,7 @@ def main():
                     num_special_tokens=num_special_tokens,
                     special_tokens=special_tokens,
                     coreference=args.coreference
-                    )
+                )
 
             logger.info("***** Running predictions *****")
             logger.info("  Num orig examples = %d", len(eval_examples))
@@ -1502,15 +1610,19 @@ def main():
             all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
             all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
             if args.span_based_coreference is True:
-                all_spans = pad_sequence([ torch.tensor(f.spans, dtype=torch.long) for f in eval_features], batch_first=True, padding_value=-1)
+                all_spans = pad_sequence([torch.tensor(f.spans, dtype=torch.long) for f in eval_features],
+                                         batch_first=True, padding_value=-1)
                 eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_spans)
             elif args.chinese_zero is True:
-                all_zps = pad_sequence([ torch.tensor(f.zps, dtype=torch.long) for f in eval_features], batch_first=True, padding_value=-1)
+                all_zps = pad_sequence([torch.tensor(f.zps, dtype=torch.long) for f in eval_features], batch_first=True,
+                                       padding_value=-1)
                 all_candidates_labels_set = get_all_pad_candidates_labels_set(eval_features)
-                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_zps, all_candidates_labels_set)
+                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_zps,
+                                          all_candidates_labels_set)
             elif args.pas_analysis is True:
                 all_ng_arg_ids_set = torch.tensor([f.ng_arg_ids_set for f in eval_features], dtype=torch.long)
-                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_ng_arg_ids_set)
+                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index,
+                                          all_ng_arg_ids_set)
             else:
                 eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
             if args.local_rank == -1:
@@ -1540,12 +1652,13 @@ def main():
 
                 with torch.no_grad():
                     if args.span_based_coreference is True:
-                        metadata = [ eval_features[example_index.item()].metadata for example_index in example_indices ]
+                        metadata = [eval_features[example_index.item()].metadata for example_index in example_indices]
                         # print("metadata", [ m.metadata["clusters"] for m in metadata])
                         ret_dict = model(input_ids, segment_ids, input_mask, span_ids, metadata=metadata)
                         # print("predicted", ret_dict["predicted_antecedents"])
                     elif args.chinese_zero is True:
-                        ret_dict = model(input_ids, segment_ids, input_mask, all_zps, all_candidates_labels_set, is_training=False)
+                        ret_dict = model(input_ids, segment_ids, input_mask, all_zps, all_candidates_labels_set,
+                                         is_training=False)
                     elif args.pas_analysis is True:
                         ret_dict = model(input_ids, segment_ids, input_mask, ng_arg_ids_set=ng_arg_ids)
                     else:
@@ -1593,40 +1706,45 @@ def main():
                 output_prediction_file = os.path.join(args.output_dir, args.prediction_result_filename)
             # output_nbest_file = os.path.join(args.output_dir, "nbest_predictions.json")
             if args.span_based_coreference is True:
-                from span_based_coreference import decode_span_based_coreference, evaluate
                 pass
                 # batch_clusters = decode_span_based_coreference(all_results)
                 # print(batch_clusters)
-                #evaluate(eval_examples, eval_features, batch_clusters)
+                # evaluate(eval_examples, eval_features, batch_clusters)
             else:
-                write_predictions(eval_examples, eval_features, all_results, output_prediction_file, args.max_seq_length,
+                write_predictions(eval_examples, eval_features, all_results, output_prediction_file,
+                                  args.max_seq_length,
                                   knp_dpnd, knp_case,
-                                  pas_analysis=args.pas_analysis, cases=cases, num_special_tokens=num_special_tokens, special_tokens=special_tokens,
+                                  pas_analysis=args.pas_analysis, cases=cases, num_special_tokens=num_special_tokens,
+                                  special_tokens=special_tokens,
                                   coreference=args.coreference, parsing=args.parsing,
-                                  word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging, subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-                                  estimate_dep_label=args.estimate_dep_label, token_label_vocabulary=token_label_vocabulary,
-                                  use_gold_segmentation_in_test=args.use_gold_segmentation_in_test, use_gold_pos_in_test=args.use_gold_pos_in_test,
+                                  word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+                                  subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
+                                  estimate_dep_label=args.estimate_dep_label,
+                                  token_label_vocabulary=token_label_vocabulary,
+                                  use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
+                                  use_gold_pos_in_test=args.use_gold_pos_in_test,
                                   chinese_zero=args.chinese_zero, knp_mode=args.knp_mode, output_tree=args.output_tree)
             if args.knp_mode is False:
                 break
+
 
 def preprocess_vocab(tokenizer, args):
     num_expand_vocab = 0
     num_finetuning_added_tokens = 0
     num_special_tokens = 0
-    
+
     finetuning_added_tokens = None
     if args.finetuning_added_tokens is not None:
         finetuning_added_tokens = tuple(args.finetuning_added_tokens.split(","))
         num_finetuning_added_tokens = len(finetuning_added_tokens)
-        num_expand_vocab += num_finetuning_added_tokens       
+        num_expand_vocab += num_finetuning_added_tokens
         tokenizer.basic_tokenizer.never_split = tokenizer.basic_tokenizer.never_split + finetuning_added_tokens
 
     special_tokens = None
     num_special_tokens = 0
     if args.parsing is True:
         args.special_tokens = "[ROOT]"
-        
+
     if args.special_tokens is not None:
         special_tokens = args.special_tokens.split(",")
         num_special_tokens = len(special_tokens)
@@ -1634,14 +1752,17 @@ def preprocess_vocab(tokenizer, args):
 
     return num_expand_vocab, finetuning_added_tokens, num_finetuning_added_tokens, special_tokens, num_special_tokens
 
+
 def add_vocab(finetuning_added_tokens, tokenizer, model):
     for i, finetuning_added_token in enumerate(finetuning_added_tokens):
         tokenizer.vocab[finetuning_added_token] = model.config.vocab_size + i
-        logger.info("added vocab: {} ({})".format(finetuning_added_token, tokenizer.vocab[finetuning_added_token])) 
-    
-def update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps, model, optimizer, global_step):
+        logger.info("added vocab: {} ({})".format(finetuning_added_token, tokenizer.vocab[finetuning_added_token]))
+
+
+def update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps, model, optimizer, global_step,
+                      param_optimizer):
     if n_gpu > 1:
-        loss = loss.mean() # mean() to average on multi-gpu.
+        loss = loss.mean()  # mean() to average on multi-gpu.
     if args.fp16 and args.loss_scale != 1.0:
         # rescale loss for fp16 training
         # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
@@ -1650,7 +1771,7 @@ def update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps, model, opti
         loss = loss / args.gradient_accumulation_steps
     loss.backward()
     tr_loss += loss.item()
-    nb_tr_steps += 1                
+    nb_tr_steps += 1
     if (step + 1) % args.gradient_accumulation_steps == 0:
         if args.fp16 or args.optimize_on_cpu:
             if args.fp16 and args.loss_scale != 1.0:
@@ -1673,28 +1794,38 @@ def update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps, model, opti
 
     return tr_loss, nb_tr_steps, global_step
 
+
 def get_all_pad_candidates_labels_set(features):
     padded_candidate_label_sets = []
     for i, f in enumerate(features):
-        padded_candidate_label_sets.append(pad_sequence([ torch.tensor((candidates_labels_set), dtype=torch.long) for candidates_labels_set in f.candidates_labels_set],
-                                           batch_first=True, padding_value=-1))
+        padded_candidate_label_sets.append(pad_sequence(
+            [torch.tensor((candidates_labels_set), dtype=torch.long) for candidates_labels_set in
+             f.candidates_labels_set],
+            batch_first=True, padding_value=-1))
 
     max_candidates_num = max([candidate_sets.size(1) for candidate_sets in padded_candidate_label_sets])
 
-    all_pad_candidates_labels_set = pad_sequence([torch.cat([s,torch.zeros(s.size(0), max_candidates_num - s.size(1), s.size(2), dtype=torch.long).fill_(-1)], dim=1) for s in padded_candidate_label_sets],
-                                                 batch_first=True, padding_value=-1)
+    all_pad_candidates_labels_set = pad_sequence([torch.cat(
+        [s, torch.zeros(s.size(0), max_candidates_num - s.size(1), s.size(2), dtype=torch.long).fill_(-1)], dim=1) for s
+        in padded_candidate_label_sets],
+        batch_first=True, padding_value=-1)
 
     return all_pad_candidates_labels_set
+
 
 def postprocess_args(args):
     if args.chinese_zero is True:
         args.lang = "zh"
-        
     return args
+
 
 if __name__ == "__main__":
     sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
-    
+
+    logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
+                        datefmt='%m/%d/%Y %H:%M:%S',
+                        level=logging.INFO)
+
     main()
