@@ -336,8 +336,9 @@ def read_parsing_examples(input_file, is_training,
             for line in buf.split('EOS\n'):
                 line = line + 'EOS'
                 line = jpp2conll_one_sentence(line)
-                buf_all += line.rstrip('\n') + '\n'
+                buf_all += line
             buf = buf_all
+            print(buf)
         else:
             buf = jpp2conll_one_sentence(buf)
     return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging, feats_tagging, estimate_dep_label, use_gold_pos_in_test, use_gold_pos_in_test, h2z)
@@ -1523,6 +1524,7 @@ def main():
             all_results = []
             logger.info("Start evaluating")
             for input_ids, input_mask, segment_ids, example_indices, *rests in tqdm(eval_dataloader, desc="Evaluating"):
+                print(input_ids)
                 if len(all_results) % 1000 == 0:
                     logger.info("Processing example: %d" % (len(all_results)))
                 input_ids = input_ids.to(device)
