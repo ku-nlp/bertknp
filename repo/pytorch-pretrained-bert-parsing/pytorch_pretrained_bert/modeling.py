@@ -1275,7 +1275,7 @@ class BertForParsing(PreTrainedBertModel):
         # not to modify self
         if self.pas_analysis is False:
             seq_length = input_ids.size(1)
-            eye_mask = torch.eye(seq_length, dtype=torch.float32, device=input_ids.device) * -10000.0
+            eye_mask = torch.eye(seq_length, device=input_ids.device).to(dtype=input_ids.dtype) * -10000.0
             g_logits += eye_mask.unsqueeze(0)
 
         token_tags_logits = {}
