@@ -326,7 +326,7 @@ def read_parsing_examples(input_file, is_training,
             break
         buf += line
         # read one sentence if read from stdin
-        if input_file is None and (line == "\n" or line.startswith('EOS')) and (multi_process is False):
+        if input_file is None and (line == "\n" or line.startswith('EOS')) and (multi_sentences is False):
             break
     if knp_mode is False:
         reader.close()
@@ -335,7 +335,7 @@ def read_parsing_examples(input_file, is_training,
 
     # convert Juman++ (-s 1) to CoNLL
     if knp_mode:
-        if multi_process:
+        if multi_sentences:
             buf_all = ''
             for line in buf.split('EOS\n'):
                 line += 'EOS'
