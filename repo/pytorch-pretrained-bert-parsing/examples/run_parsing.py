@@ -309,7 +309,7 @@ def read_parsing_examples(input_file, is_training,
                           word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
                           estimate_dep_label=False, use_gold_segmentation_in_test=False, use_gold_pos_in_test=False, h2z=False, knp_mode=False):
     """Read a file into a list of ParsingExample."""
-    multi_process = True
+    multi_sentences = True  # If you use from pyknp, you should set this variable to False
     if knp_mode:
         reader = sys.stdin
     else:
@@ -322,7 +322,7 @@ def read_parsing_examples(input_file, is_training,
             break
         buf += line
         # read one sentence if read from stdin
-        if input_file is None and (line == "\n" or line.startswith('EOS')) and multi_process==False:
+        if input_file is None and (line == "\n" or line.startswith('EOS')) and (multi_process is False):
             break
     if knp_mode is False:
         reader.close()
@@ -334,11 +334,10 @@ def read_parsing_examples(input_file, is_training,
         if multi_process:
             buf_all = ''
             for line in buf.split('EOS\n'):
-                line = line + 'EOS'
+                line += 'EOS'
                 line = jpp2conll_one_sentence(line)
                 buf_all += line
             buf = buf_all
-            print(buf)
         else:
             buf = jpp2conll_one_sentence(buf)
     return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging, feats_tagging, estimate_dep_label, use_gold_pos_in_test, use_gold_pos_in_test, h2z)
@@ -1524,7 +1523,6 @@ def main():
             all_results = []
             logger.info("Start evaluating")
             for input_ids, input_mask, segment_ids, example_indices, *rests in tqdm(eval_dataloader, desc="Evaluating"):
-                print(input_ids)
                 if len(all_results) % 1000 == 0:
                     logger.info("Processing example: %d" % (len(all_results)))
                 input_ids = input_ids.to(device)
