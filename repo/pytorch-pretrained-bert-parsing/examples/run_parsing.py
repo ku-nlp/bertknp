@@ -281,6 +281,7 @@ def jpp2conll_one_sentence(buf):
         if line.startswith('EOS'):
             break
         items = line.strip().split('\t')
+
         if prev_id == items[1]:
             continue # skip the same id
         else:
@@ -308,6 +309,7 @@ def read_parsing_examples(input_file, is_training,
                           word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
                           estimate_dep_label=False, use_gold_segmentation_in_test=False, use_gold_pos_in_test=False, h2z=False, knp_mode=False):
     """Read a file into a list of ParsingExample."""
+    multi_process = True
     if knp_mode:
         reader = sys.stdin
     else:
@@ -320,7 +322,7 @@ def read_parsing_examples(input_file, is_training,
             break
         buf += line
         # read one sentence if read from stdin
-        if input_file is None and (line == "\n" or line.startswith('EOS')):
+        if input_file is None and (line == "\n" or line.startswith('EOS')) and multi_process==False:
             break
     if knp_mode is False:
         reader.close()
@@ -329,7 +331,15 @@ def read_parsing_examples(input_file, is_training,
 
     # convert Juman++ (-s 1) to CoNLL
     if knp_mode:
-        buf = jpp2conll_one_sentence(buf)
+        if multi_process:
+            buf_all = ''
+            for line in buf.split('EOS\n'):
+                line = line + 'EOS'
+                line = jpp2conll_one_sentence(line)
+                buf_all += line.rstrip('\n') + '\n'
+            buf = buf_all
+        else:
+            buf = jpp2conll_one_sentence(buf)
     return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging, feats_tagging, estimate_dep_label, use_gold_pos_in_test, use_gold_pos_in_test, h2z)
 
 def read_parsing_examples_from_buf(buf, is_training,
