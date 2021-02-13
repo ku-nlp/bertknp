@@ -235,17 +235,18 @@ def sprint_tag_tree(knp_result):
 def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
                               output_tree=False):
     # convert a result to KNP format
-    knp_result = knp_dpnd.parse(get_sentence_str(all_examples[0]))
-    knp_result.comment = all_examples[0].comment
-    head_ids, dpnd_types = get_head_ids_types(all_examples[0], all_features[0], all_results[0], max_seq_length)
-    modify_knp(knp_result, head_ids, dpnd_types)
-
-    # add predicate-argument structures by KNP
-    knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
-    if output_tree:
-        writer.write(sprint_tag_tree(knp_result_new))
-    else:
-        writer.write(knp_result_new.all())
+    for i in range(len(all_examples)-1):
+        knp_result = knp_dpnd.parse(get_sentence_str(all_examples[i]))
+        knp_result.comment = all_examples[i].comment
+        head_ids, dpnd_types = get_head_ids_types(all_examples[i], all_features[i], all_results[i], max_seq_length)
+        modify_knp(knp_result, head_ids, dpnd_types)
+    
+        # add predicate-argument structures by KNP
+        knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
+        if output_tree:
+            writer.write(sprint_tag_tree(knp_result_new))
+        else:
+            writer.write(knp_result_new.all())
     return knp_result_new
 
 
