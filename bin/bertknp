@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 usage() {
-  echo "Usage: echo sentence | $0 [-v] [-b BERT_MODEL] [-m BERT_PARSING_MODEL_DIR] [-P BERT_PARSING_COMMAND] [-o BERT_PARSING_OPTIONS] [-O BERT_PARSING_OPTIONS_FROM_FILE] [-p PYTHON_COMMAND] [-tab]"
+  echo "Usage: echo sentence | $0 [-v] [-b BERT_MODEL] [-m BERT_PARSING_MODEL_DIR] [-P BERT_PARSING_COMMAND] [-o BERT_PARSING_OPTIONS] [-O BERT_PARSING_OPTIONS_FROM_FILE] [-p PYTHON_COMMAND] [-tab] [-pyknp]"
   exit 1
 }
 
@@ -85,6 +85,9 @@ for OPT in "$@"; do
     ;;
   -tab)
     BERT_PARSING_OUTPUT_OPTIONS=""
+    ;;
+  -pyknp)
+    BERT_PARSING_OPTIONS="$BERT_PARSING_OPTIONS --single_sentence"
     ;;
   -v | -version)
     version

@@ -282,10 +282,8 @@ def read_parsing_examples(input_file, is_training,
                           parsing=False,
                           word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
                           estimate_dep_label=False, use_gold_segmentation_in_test=False, use_gold_pos_in_test=False,
-                          h2z=False, knp_mode=False):
+                          h2z=False, knp_mode=False, multi_sentences=True):
     """Read a file into a list of ParsingExample."""
-    multi_sentences = True  # If you use from pyknp, you should set this variable to False
-
     buf_conll = ''
     if knp_mode is True:
         # convert Juman++ (-s 1) to CoNLL
@@ -919,6 +917,8 @@ def main():
     parser.add_argument("--output_tree", default=False, action='store_true', help="Output trees.")
     parser.add_argument("--pos_list", default=None, type=str,
                         help="Specify a pos.list file to convert a Juman++ file to CoNLL.")
+    parser.add_argument("--single_sentence", default=False, action='store_true',
+                        help="If you use bertknp from pyknp, you should specify this flag.")
 
     args = parser.parse_args()
     args = postprocess_args(args)
@@ -1005,7 +1005,8 @@ def main():
                 word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
                 subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
                 use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                estimate_dep_label=args.estimate_dep_label, h2z=args.h2z, knp_mode=args.knp_mode)
+                estimate_dep_label=args.estimate_dep_label, h2z=args.h2z, knp_mode=args.knp_mode,
+                multi_sentences=(not args.single_sentence))
         if args.use_training_data_ratio is not None:
             num_train_example = int(len(train_examples) * args.use_training_data_ratio)
             train_examples = train_examples[:num_train_example]
@@ -1264,7 +1265,7 @@ def main():
                     subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
                     use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
                     use_gold_pos_in_test=args.use_gold_pos_in_test,
-                    h2z=args.h2z, knp_mode=args.knp_mode)
+                    h2z=args.h2z, knp_mode=args.knp_mode, multi_sentences=(not args.single_sentence))
                 if len(eval_examples) == 0:
                     break
 
