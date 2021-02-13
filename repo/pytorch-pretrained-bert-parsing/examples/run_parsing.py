@@ -235,18 +235,18 @@ def sprint_tag_tree(knp_result):
 def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
                               output_tree=False):
     # convert a result to KNP format
-    knp_result = knp_dpnd.parse(get_sentence_str(all_examples[0]))
-    knp_result.comment = all_examples[0].comment
-    head_ids, dpnd_types = get_head_ids_types(all_examples[0], all_features[0], all_results[0], max_seq_length)
-    modify_knp(knp_result, head_ids, dpnd_types)
-
-    # add predicate-argument structures by KNP
-    knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
-    if output_tree:
-        writer.write(sprint_tag_tree(knp_result_new))
-    else:
-        writer.write(knp_result_new.all())
-    return knp_result_new
+    for examples, features, results in zip(all_examples, all_features, all_results):
+        knp_result = knp_dpnd.parse(get_sentence_str(examples))
+        knp_result.comment = examples.comment
+        head_ids, dpnd_types = get_head_ids_types(examples, features, results, max_seq_length)
+        modify_knp(knp_result, head_ids, dpnd_types)
+    
+        # add predicate-argument structures by KNP
+        knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
+        if output_tree:
+            writer.write(sprint_tag_tree(knp_result_new))
+        else:
+            writer.write(knp_result_new.all())
 
 
 def read_pos_list(pos_list_file):
@@ -337,11 +337,12 @@ def read_parsing_examples(input_file, is_training,
     if knp_mode:
         if multi_sentences:
             buf_all = ''
-            for line in buf.split('EOS\n'):
+            for line in buf.split('EOS\n')[:-1]:
                 line += 'EOS'
                 line = jpp2conll_one_sentence(line)
                 buf_all += line
             buf = buf_all
+    
         else:
             buf = jpp2conll_one_sentence(buf)
     return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging,
