@@ -235,7 +235,7 @@ def sprint_tag_tree(knp_result):
 def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
                               output_tree=False):
     # convert a result to KNP format
-    for i in range(len(all_examples)-1):
+    for i in range(len(all_examples)):
         knp_result = knp_dpnd.parse(get_sentence_str(all_examples[i]))
         knp_result.comment = all_examples[i].comment
         head_ids, dpnd_types = get_head_ids_types(all_examples[i], all_features[i], all_results[i], max_seq_length)
@@ -247,7 +247,7 @@ def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, al
             writer.write(sprint_tag_tree(knp_result_new))
         else:
             writer.write(knp_result_new.all())
-    return knp_result_new
+    
 
 
 def read_pos_list(pos_list_file):
@@ -342,7 +342,7 @@ def read_parsing_examples(input_file, is_training,
                 line += 'EOS'
                 line = jpp2conll_one_sentence(line)
                 buf_all += line
-            buf = buf_all
+            buf = buf_all.rstrip("\n") + "\n\n"
         else:
             buf = jpp2conll_one_sentence(buf)
     return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging,
