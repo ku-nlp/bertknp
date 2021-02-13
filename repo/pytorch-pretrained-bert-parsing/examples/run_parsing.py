@@ -314,40 +314,29 @@ def read_parsing_examples(input_file, is_training,
                           h2z=False, knp_mode=False):
     """Read a file into a list of ParsingExample."""
     multi_sentences = True  # If you use from pyknp, you should set this variable to False
-    if knp_mode:
-        reader = sys.stdin
-    else:
-        reader = open(input_file, "r", encoding="utf-8")
 
-    buf = ''
-    while True:
-        line = reader.readline()
-        if not line:
-            break
-        buf += line
-        # read one sentence if read from stdin
-        if input_file is None and (line == "\n" or line.startswith('EOS')) and (multi_sentences is False):
-            break
-    if knp_mode is False:
-        reader.close()
-    if not buf:
+    buf_conll = ''
+    if knp_mode is True:
+        # convert Juman++ (-s 1) to CoNLL
+        buf = ''
+        for line in sys.stdin:
+            buf += line
+            if line.strip() == 'EOS':
+                buf_conll += jpp2conll_one_sentence(buf)
+                buf = ''
+                if multi_sentences is False:
+                    break
+    else:
+        with open(input_file, encoding='utf-8') as f:
+            for line in f:
+                buf_conll += line
+
+    if not buf_conll:
         return []
 
-    # convert Juman++ (-s 1) to CoNLL
-    if knp_mode:
-        if multi_sentences:
-            buf_all = ''
-            for line in buf.split('EOS\n')[:-1]:
-                line += 'EOS'
-                line = jpp2conll_one_sentence(line)
-                buf_all += line
-            buf = buf_all
-
-        else:
-            buf = jpp2conll_one_sentence(buf)
-    return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging,
-                                          feats_tagging, estimate_dep_label, use_gold_pos_in_test, use_gold_pos_in_test,
-                                          h2z)
+    return read_parsing_examples_from_buf(buf_conll, is_training, parsing, word_segmentation, pos_tagging,
+                                          subpos_tagging, feats_tagging, estimate_dep_label,
+                                          use_gold_segmentation_in_test, use_gold_pos_in_test, h2z)
 
 
 def read_parsing_examples_from_buf(buf, is_training,
