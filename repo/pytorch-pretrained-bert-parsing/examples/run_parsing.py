@@ -240,7 +240,7 @@ def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, al
         knp_result.comment = examples.comment
         head_ids, dpnd_types = get_head_ids_types(examples, features, results, max_seq_length)
         modify_knp(knp_result, head_ids, dpnd_types)
-    
+
         # add predicate-argument structures by KNP
         knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
         if output_tree:
@@ -342,7 +342,7 @@ def read_parsing_examples(input_file, is_training,
                 line = jpp2conll_one_sentence(line)
                 buf_all += line
             buf = buf_all
-    
+
         else:
             buf = jpp2conll_one_sentence(buf)
     return read_parsing_examples_from_buf(buf, is_training, parsing, word_segmentation, pos_tagging, subpos_tagging,
@@ -377,7 +377,7 @@ def read_parsing_examples_from_buf(buf, is_training,
                     # convert word to char indices (except -1 and 0 (Root))
                     heads = [word_to_char_index[head - 1] + 1 if head != -1 and head != 0 else head for head in heads]
                 else:
-                    heads = [-1 for head in heads]
+                    heads = [-1] * len(heads)
             example = ParsingExample(
                 example_id,
                 words,
@@ -608,7 +608,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
 
         all_tokens, tok_to_orig_index, orig_to_tok_index = get_tokenized_tokens(example.words, tokenizer)
 
-        ## CLS
+        # CLS
         tokens.append("[CLS]")
         segment_ids.append(0)
         if pas_analysis is True:
@@ -619,7 +619,6 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         if word_segmentation is True or use_gold_segmentation_in_test is True:
             for namespace in example.token_tag_indices:
                 token_tag_indices[namespace].append(-1)
-        ##
 
         for j, token in enumerate(all_tokens):
             tokens.append(token)
@@ -680,7 +679,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
 
             segment_ids.append(0)
 
-        ## SEP
+        # SEP
         tokens.append("[SEP]")
         if pas_analysis is True:
             arguments_set.append([-1 for _ in range(num_case_w_coreference)])
@@ -691,7 +690,6 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
             for namespace in example.token_tag_indices:
                 token_tag_indices[namespace].append(-1)
         segment_ids.append(0)
-        ##
 
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
 
@@ -745,8 +743,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
 
         if example_index < 20:
             logger.info("*** Example ***")
-            logger.info("unique_id: %s" % (unique_id))
-            logger.info("example_index: %s" % (example_index))
+            logger.info("unique_id: %s" % unique_id)
+            logger.info("example_index: %s" % example_index)
             logger.info("tokens: %s" % " ".join(
                 [x for x in tokens]))
             logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
@@ -804,7 +802,7 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
                       chinese_zero=False, knp_mode=False, output_tree=False):
     """Write final predictions to the file."""
     if output_prediction_file is not None:
-        logger.info("Writing predictions to: %s" % (output_prediction_file))
+        logger.info("Writing predictions to: %s" % output_prediction_file)
 
     if coreference is True:
         cases.append("=")
@@ -1083,14 +1081,14 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
 def main():
     parser = argparse.ArgumentParser()
 
-    ## Required parameters
+    # Required parameters
     parser.add_argument("--bert_model", default=None, type=str, required=True,
                         help="Bert pre-trained model selected in the list: bert-base-uncased, "
                              "bert-large-uncased, bert-base-cased, bert-base-multilingual, bert-base-chinese.")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model checkpoints will be written.")
 
-    ## Other parameters
+    # Other parameters
     parser.add_argument("--train_file", default=None, type=str, help="SQuAD json for training. E.g., train-v1.1.json")
     parser.add_argument("--predict_file", default=None, type=str,
                         help="SQuAD json for predictions. E.g., dev-v1.1.json or test-v1.1.json")
