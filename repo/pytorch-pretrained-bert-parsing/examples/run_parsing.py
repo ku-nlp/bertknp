@@ -85,35 +85,6 @@ class ParsingExample(object):
         return s
 
 
-class PasExample(object):
-    """A single training/test example for pas analysis."""
-
-    def __init__(self,
-                 example_id,
-                 words,
-                 lines,
-                 arguments_set=None,
-                 ng_arg_ids_set=None,
-                 comment=None):
-        self.example_id = example_id
-        self.words = words
-        self.lines = lines
-        self.arguments_set = arguments_set
-        self.ng_arg_ids_set = ng_arg_ids_set
-        self.comment = comment
-
-    def __str__(self):
-        return self.__repr__()
-
-    def __repr__(self):
-        s = ""
-        # TODO: Resolve import error
-        # s += "id: %s" % (printable_text(self.example_id))
-        # s += ", word: %s" % (printable_text(" ".join(self.words)))
-        # s += ", arguments: %s" % (printable_text(" ".join(self.arguments_set)))
-        return s
-
-
 class TokenLabelVocabulary(object):
     def __init__(self, namespace, train_examples, num_label=None):
         self.namespace = namespace
@@ -486,103 +457,15 @@ def get_word_segmentation_tag(i, char_num, is_training):
         return "I"
 
 
-def read_pas_examples(input_file, is_training, num_case, cases,
-                      coreference=False):
-    """Read a file into a list of PasExample."""
-
-    examples = []
-    example_id = 0
-    comment = None
-    with open(input_file, "r", encoding="utf-8") as reader:
-        # 9       関わる  ガ:10,ヲ:NULL,ニ:7%C,ガ２:NULL _ _ _
-        words, arguments_set, ng_arg_ids_set, lines = [], [], [], []
-        while True:
-            line = reader.readline()
-            if not line:
-                break
-            line = line.strip()
-            if line.startswith("#") is True:
-                comment = line
-                continue
-            if not line:
-                example = PasExample(
-                    example_id,
-                    words,
-                    lines,
-                    arguments_set=arguments_set,
-                    ng_arg_ids_set=ng_arg_ids_set,
-                    comment=comment)
-                examples.append(example)
-
-                example_id += 1
-                words, arguments_set, ng_arg_ids_set, lines = [], [], [], []
-                comment = None
-                continue
-
-            items = line.split("\t")
-            word = items[1]
-            argument_string = items[5]
-            ng_arg_string = items[8]
-            if argument_string == "_":
-                arguments = [-1 for _ in range(num_case)]
-                ng_arg_ids = []
-            else:
-                arguments = []
-                for i, argument in enumerate(argument_string.split(",")):
-                    case, argument_index = argument.split(":", 1)
-                    assert cases[i] == case
-                    arguments.append(argument_index)
-                if ng_arg_string != "_":
-                    ng_arg_ids = [int(ng_arg_id) for ng_arg_id in ng_arg_string.split("/")]
-                else:
-                    ng_arg_ids = []
-
-            coreference_string = None
-            if coreference is True:
-                coreference_string = items[6]
-                if coreference_string == "_":
-                    arguments.append(-1)
-                elif coreference_string == "NA":
-                    arguments.append("NA")
-                else:
-                    arguments.append(coreference_string)
-
-            if is_training is False:
-                if argument_string != "_":
-                    # ガ:55%C,ヲ:57,ニ:NULL,ガ２:NULL
-                    arguments = []
-                    for i, argument in enumerate(argument_string.split(",")):
-                        case, argument_index = argument.split(":", 1)
-                        if "%C" not in argument_index:
-                            argument_index = "MASKED"
-                        arguments.append("{}:{}".format(case, argument_index))
-                    items[5] = ",".join(arguments)
-
-                if coreference is True:
-                    if coreference_string != "_":
-                        items[6] = "MASKED"
-                line = "\t".join(items)
-
-            words.append(word)
-            arguments_set.append(arguments)
-            ng_arg_ids_set.append(ng_arg_ids)
-            lines.append(line)
-
-    return examples
-
-
 def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size,
-                                 is_training, pas_analysis=False, word_segmentation=False,
+                                 is_training, word_segmentation=False,
                                  use_gold_segmentation_in_test=False,
-                                 num_case=None, num_special_tokens=1, special_tokens=None, coreference=False):
+                                 num_special_tokens=1, special_tokens=None):
     """Loads a data file into a list of `InputBatch`s."""
 
     unique_id = 1000000000
 
     features = []
-    num_case_w_coreference = num_case
-    if coreference is True:
-        num_case_w_coreference += 1
 
     for (example_index, example) in enumerate(examples):
         # The -3 accounts for [CLS], [SEP], ROOT
@@ -591,8 +474,6 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         tokens = []
         segment_ids = []
         heads = []
-        arguments_set = []
-        ng_arg_ids_set = []
         token_tag_indices = defaultdict(list)
 
         all_tokens, tok_to_orig_index, orig_to_tok_index = get_tokenized_tokens(example.words, tokenizer)
@@ -600,11 +481,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         # CLS
         tokens.append("[CLS]")
         segment_ids.append(0)
-        if pas_analysis is True:
-            arguments_set.append([-1 for _ in range(num_case_w_coreference)])
-            ng_arg_ids_set.append([])
-        else:
-            heads.append(-1)
+        heads.append(-1)
         if word_segmentation is True or use_gold_segmentation_in_test is True:
             for namespace in example.token_tag_indices:
                 token_tag_indices[namespace].append(-1)
@@ -615,66 +492,25 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
                 for namespace in example.token_tag_indices:
                     token_tag_indices[namespace].append(example.token_tag_indices[namespace][tok_to_orig_index[j]])
 
-            if pas_analysis is True:
-                arguments = []
-                if is_training is False or token.startswith("##") is True:
-                    arguments_set.append([-1 for _ in range(num_case_w_coreference)])
-                else:
-                    for k, argument_index in enumerate(example.arguments_set[tok_to_orig_index[j]]):
-                        # -1 or normal
-                        if isinstance(argument_index, int) or argument_index.isdigit() is True:
-                            # ng_arg_id (except for coreference resolution)
-                            if (coreference is False or (coreference is True and k != num_case_w_coreference - 1)) and \
-                                    int(argument_index) in example.ng_arg_ids_set[tok_to_orig_index[j]]:
-                                logger.debug("ng_arg_id: {} {} {}".format(example.comment, token, argument_index))
-                                argument_index = -1
-                            # normal
-                            elif isinstance(argument_index, int) is False:
-                                argument_index = int(argument_index)
-                                argument_index = orig_to_tok_index[argument_index - 1] + 1
-                            else:
-                                argument_index = -1
-                        else:
-                            if "%C" in argument_index:
-                                argument_index = -1
-                            # special token
-                            else:
-                                argument_index = max_seq_length - num_special_tokens + special_tokens.index(
-                                    argument_index)
-                        arguments.append(argument_index)
-
-                    arguments_set.append(arguments)
-
-                # ng_arg_ids                    
-                if token.startswith("##") is True:
-                    ng_arg_ids_set.append([])
-                else:
-                    ng_arg_ids_set.append([orig_to_tok_index[ng_arg_id - 1] + 1 for ng_arg_id in
-                                           example.ng_arg_ids_set[tok_to_orig_index[j]]])
             # parsing
+            if is_training is False:
+                head_id = -1
             else:
-                if is_training is False:
+                head = example.heads[tok_to_orig_index[j]]
+                # ROOT
+                if head == 0:
+                    head_id = max_seq_length - 1
+                elif token.startswith("##") is True or head == -1:
                     head_id = -1
                 else:
-                    head = example.heads[tok_to_orig_index[j]]
-                    # ROOT
-                    if head == 0:
-                        head_id = max_seq_length - 1
-                    elif token.startswith("##") is True or head == -1:
-                        head_id = -1
-                    else:
-                        head_id = orig_to_tok_index[head - 1] + 1
-                heads.append(head_id)
+                    head_id = orig_to_tok_index[head - 1] + 1
+            heads.append(head_id)
 
             segment_ids.append(0)
 
         # SEP
         tokens.append("[SEP]")
-        if pas_analysis is True:
-            arguments_set.append([-1 for _ in range(num_case_w_coreference)])
-            ng_arg_ids_set.append([])
-        else:
-            heads.append(-1)
+        heads.append(-1)
         if word_segmentation is True or use_gold_segmentation_in_test is True:
             for namespace in example.token_tag_indices:
                 token_tag_indices[namespace].append(-1)
@@ -690,45 +526,29 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         while len(input_ids) < max_seq_length - num_special_tokens:
             input_ids.append(0)
             input_mask.append(0)
-            if pas_analysis is True:
-                arguments_set.append([-1 for _ in range(num_case_w_coreference)])
-                ng_arg_ids_set.append([])
-            else:
-                heads.append(-1)
+            heads.append(-1)
             if word_segmentation is True or use_gold_segmentation_in_test is True:
                 for namespace in example.token_tag_indices:
                     token_tag_indices[namespace].append(-1)
             segment_ids.append(0)
 
-        if pas_analysis is True:
-            for i in range(num_special_tokens):
-                input_ids.append(vocab_size + i)
-                input_mask.append(1)
-                arguments_set.append([-1 for _ in range(num_case_w_coreference)])
-                ng_arg_ids_set.append([])
-                segment_ids.append(0)
-        else:
-            # ROOT
-            input_ids.append(vocab_size)
-            input_mask.append(1)
-            heads.append(-1)
-            segment_ids.append(0)
-            if word_segmentation is True or use_gold_segmentation_in_test is True:
-                for namespace in example.token_tag_indices:
-                    token_tag_indices[namespace].append(-1)
+        # ROOT
+        input_ids.append(vocab_size)
+        input_mask.append(1)
+        heads.append(-1)
+        segment_ids.append(0)
+        if word_segmentation is True or use_gold_segmentation_in_test is True:
+            for namespace in example.token_tag_indices:
+                token_tag_indices[namespace].append(-1)
 
         assert len(input_ids) == max_seq_length, "input_ids_length ({}) is greater than max_seq_length ({})".format(
             len(input_ids), max_seq_length)
         assert len(input_mask) == max_seq_length
         assert len(segment_ids) == max_seq_length
-        if pas_analysis is True:
-            assert len(arguments_set) == max_seq_length
-            assert len(ng_arg_ids_set) == max_seq_length
-        else:
-            for namespace in token_tag_indices:
-                assert len(token_tag_indices[namespace]) == max_seq_length
+        for namespace in token_tag_indices:
+            assert len(token_tag_indices[namespace]) == max_seq_length
 
-            assert len(heads) == max_seq_length
+        assert len(heads) == max_seq_length
 
         if example_index < 20:
             logger.info("*** Example ***")
@@ -741,16 +561,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
                 "input_mask: %s" % " ".join([str(x) for x in input_mask]))
             logger.info(
                 "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-            if pas_analysis is True:
-                logger.info(
-                    "arguments: %s" % " ".join(
-                        [",".join([str(arg) for arg in arguments]) for arguments in arguments_set]))
-                logger.info(
-                    "ng_arg_ids_set: %s" % " ".join(
-                        [",".join([str(x) for x in ng_arg_ids]) for ng_arg_ids in ng_arg_ids_set]))
-            else:
-                logger.info(
-                    "heads: %s" % " ".join([str(x) for x in heads]))
+            logger.info(
+                "heads: %s" % " ".join([str(x) for x in heads]))
             for namespace in token_tag_indices:
                 logger.info(
                     "%s_tags: %s" % (namespace, " ".join([str(x) for x in token_tag_indices[namespace]])))
@@ -765,10 +577,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
                 input_ids=input_ids,
                 input_mask=input_mask,
                 segment_ids=segment_ids,
-                heads=heads if pas_analysis is False else None,
-                arguments_set=arguments_set if pas_analysis is True else None,
-                ng_arg_ids_set=[[1 if x in ng_arg_ids else 0 for x in range(max_seq_length)] for ng_arg_ids in
-                                ng_arg_ids_set] if pas_analysis is True else None,
+                heads=heads,
                 token_tag_indices=token_tag_indices))
         unique_id += 1
 
@@ -776,15 +585,14 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
 
 
 RawResult = namedtuple("RawResult",
-                       ["unique_id", "heads", "topk_heads", "topk_dep_labels", "arguments_set", "token_tags",
+                       ["unique_id", "heads", "topk_heads", "topk_dep_labels", "token_tags",
                         "top_spans", "antecedent_indices", "predicted_antecedents",
                         "antecedent_labels_set"])
 
 
 def write_predictions(all_examples, all_features, all_results, output_prediction_file, max_seq_length,
-                      knp_dpnd, knp_case,
-                      pas_analysis=False, cases=None, num_special_tokens=None, special_tokens=None,
-                      coreference=False, parsing=False,
+                      knp_dpnd, knp_case, num_special_tokens=None, special_tokens=None,
+                      parsing=False,
                       word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
                       estimate_dep_label=False, token_label_vocabulary=None,
                       use_gold_segmentation_in_test=False, use_gold_pos_in_test=False,
@@ -792,9 +600,6 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
     """Write final predictions to the file."""
     if output_prediction_file is not None:
         logger.info("Writing predictions to: %s" % output_prediction_file)
-
-    if coreference is True:
-        cases.append("=")
 
     if knp_mode:
         writer = sys.stdout
@@ -822,11 +627,7 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
                 zp_index = 0
                 for line_num, line in enumerate(example.lines):
                     items = line.split("\t")
-                    if pas_analysis is True:
-                        items = output_pas_analysis(items, cases, all_results, all_features, example_index, line_num,
-                                                    max_seq_length, num_special_tokens, special_tokens,
-                                                    coreference=coreference)
-                    elif chinese_zero is True:
+                    if chinese_zero is True:
                         items = output_chinese_zero(items, result, example, zp_index)
                         if items[2] != "_":
                             zp_index += 1
@@ -977,51 +778,6 @@ def has_cycle(head_char_id, char_to_word_index, words, target_word_index):
     return False
 
 
-def output_pas_analysis(items, cases, all_results, all_features, example_index, line_num,
-                        max_seq_length, num_special_tokens, special_tokens,
-                        coreference=False):
-    if items[5] != "_":
-        # ガ:55%C,ヲ:57,ニ:NULL,ガ２:NULL
-        orig_arguments = {(arg_string.split(":", 1))[0]: (arg_string.split(":", 1))[1] for arg_string in
-                          items[5].split(",")}
-        argument_strings = []
-
-        for case, argument_string in zip(cases, all_results[example_index].arguments_set[
-            all_features[example_index].orig_to_tok_index[line_num] + 1]):
-            if coreference is True and case == "=":
-                continue
-
-            if "%C" in orig_arguments[case]:
-                argument_string = orig_arguments[case]
-            else:
-                # special
-                if argument_string >= max_seq_length - num_special_tokens:
-                    argument_string = special_tokens[argument_string - max_seq_length + num_special_tokens]
-                else:
-                    # [SEP]
-                    if len(all_features[example_index].tok_to_orig_index) + 1 == argument_string:
-                        logger.warning("Choose [SEP] as an argument. Tentatively, change it to NULL.")
-                        argument_string = "NULL"
-                    else:
-                        argument_string = all_features[example_index].tok_to_orig_index[argument_string - 1] + 1
-
-            argument_strings.append("{}:{}".format(case, argument_string))
-
-        items[5] = ",".join(argument_strings)
-
-    if coreference is True and items[6] == "MASKED":
-        argument_string = \
-            all_results[example_index].arguments_set[all_features[example_index].orig_to_tok_index[line_num] + 1][-1]
-        # special
-        if argument_string >= max_seq_length - num_special_tokens:
-            argument_string = special_tokens[argument_string - max_seq_length + num_special_tokens]
-        else:
-            argument_string = all_features[example_index].tok_to_orig_index[argument_string - 1] + 1
-        items[6] = str(argument_string)
-
-    return items
-
-
 def output_chinese_zero(items, result, example, zp_index):
     if items[2] != "_":
         candidate_strings = []
@@ -1136,10 +892,6 @@ def main():
                         help="Special tokens.")
     parser.add_argument("--finetuning_added_tokens", default=None, type=str,
                         help="Added tokens for only fine-tuning.")
-    parser.add_argument("--case_string",
-                        type=str,
-                        default=None,
-                        help="Case strings")
     parser.add_argument("--parsing", default=False, action='store_true', help="Perform parsing.")
     parser.add_argument("--word_segmentation", default=False, action='store_true', help="Perform word segmentation.")
     parser.add_argument("--use_gold_segmentation_in_test", default=False, action='store_true',
@@ -1151,10 +903,6 @@ def main():
     parser.add_argument("--parsing_algorithm", choices=["biaffine", "zhang"], default="zhang",
                         help="biaffine [Dozat+ 17] or zhang [Zhang+ 16]")
     parser.add_argument("--estimate_dep_label", default=False, action='store_true', help="Estimate dependency labels.")
-    parser.add_argument("--pas_analysis", default=False, action='store_true',
-                        help="Perform predicate argument structure anslysis.")
-    parser.add_argument("--coreference", default=False, action='store_true',
-                        help="Perform coreference resolution (Japanese).")
     parser.add_argument("--span_based_coreference", default=False, action='store_true',
                         help="Perform coreference resolution (English).")
     parser.add_argument("--chinese_zero", default=False, action='store_true',
@@ -1228,11 +976,6 @@ def main():
     num_expand_vocab, finetuning_added_tokens, num_finetuning_added_tokens, special_tokens, num_special_tokens = \
         preprocess_vocab(tokenizer, args)
 
-    cases, num_case = None, 1
-    if args.case_string is not None:
-        cases = args.case_string.split(",")
-        num_case = len(cases)
-
     output_model_file = os.path.join(args.output_dir, "pytorch_model.bin")
     vocab_size = None
     train_examples = None
@@ -1255,10 +998,6 @@ def main():
             raise ImportError
             # from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
             # train_examples = read_chinese_zero_examples(input_file=args.train_file, is_training=True)
-        elif args.pas_analysis is True:
-            train_examples = read_pas_examples(
-                input_file=args.train_file, is_training=True, num_case=num_case, cases=cases,
-                coreference=args.coreference)
         else:
             train_examples = read_parsing_examples(
                 input_file=args.train_file, is_training=True,
@@ -1305,9 +1044,7 @@ def main():
             model = BertForParsing.from_pretrained(args.bert_model,
                                                    cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(
                                                        args.local_rank),
-                                                   pas_analysis=args.pas_analysis,
                                                    token_label_vocabulary=token_label_vocabulary,
-                                                   num_case=num_case + 1 if args.coreference else num_case,
                                                    parsing_algorithm=args.parsing_algorithm,
                                                    estimate_dep_label=args.estimate_dep_label)
 
@@ -1377,13 +1114,10 @@ def main():
                 max_seq_length=args.max_seq_length,
                 vocab_size=vocab_size,
                 is_training=True,
-                pas_analysis=args.pas_analysis,
                 word_segmentation=args.word_segmentation,
                 use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                num_case=num_case,
                 num_special_tokens=num_special_tokens,
-                special_tokens=special_tokens,
-                coreference=args.coreference)
+                special_tokens=special_tokens)
         logger.info("***** Running training *****")
         logger.info("  Num orig examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
@@ -1410,12 +1144,6 @@ def main():
             all_candidates_labels_set = get_all_pad_candidates_labels_set(train_features)
             train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_zps,
                                        all_candidates_labels_set)
-        # pas_analysis
-        elif args.pas_analysis is True:
-            all_arguments_set = torch.tensor([f.arguments_set for f in train_features], dtype=torch.long)
-            all_ng_arg_ids_set = torch.tensor([f.ng_arg_ids_set for f in train_features], dtype=torch.long)
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_arguments_set,
-                                       all_ng_arg_ids_set)
         # word_segmentation, pos tagging, parsing
         else:
             all_heads = torch.tensor([f.heads for f in train_features], dtype=torch.long)
@@ -1453,10 +1181,6 @@ def main():
                 elif args.chinese_zero is True:
                     input_ids, input_mask, segment_ids, zps, candidates_labels_set = batch
                     loss = model(input_ids, segment_ids, input_mask, zps, candidates_labels_set)
-                elif args.pas_analysis is True:
-                    input_ids, input_mask, segment_ids, arguments_set, ng_arg_ids_set = batch
-                    loss = model(input_ids, segment_ids, input_mask, arguments_set=arguments_set,
-                                 ng_arg_ids_set=ng_arg_ids_set)
                 else:
                     token_tags = None
                     if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
@@ -1503,9 +1227,7 @@ def main():
         else:
             model = BertForParsing.from_pretrained(args.bert_model, state_dict=model_state_dict,
                                                    num_expand_vocab=num_expand_vocab,
-                                                   pas_analysis=args.pas_analysis,
                                                    token_label_vocabulary=token_label_vocabulary,
-                                                   num_case=num_case + 1 if args.coreference else num_case,
                                                    parsing_algorithm=args.parsing_algorithm,
                                                    estimate_dep_label=args.estimate_dep_label)
         if args.do_train is False and num_finetuning_added_tokens > 0:
@@ -1534,10 +1256,6 @@ def main():
                 raise ImportError
                 # from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
                 # eval_examples = read_chinese_zero_examples(input_file=args.predict_file, is_training=False)
-            elif args.pas_analysis is True:
-                eval_examples = read_pas_examples(
-                    input_file=args.predict_file, is_training=False, num_case=num_case, cases=cases,
-                    coreference=args.coreference)
             else:
                 eval_examples = read_parsing_examples(
                     input_file=args.predict_file, is_training=False,
@@ -1580,13 +1298,10 @@ def main():
                     max_seq_length=args.max_seq_length,
                     vocab_size=vocab_size,
                     is_training=False,
-                    pas_analysis=args.pas_analysis,
                     word_segmentation=args.word_segmentation,
                     use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                    num_case=num_case,
                     num_special_tokens=num_special_tokens,
                     special_tokens=special_tokens,
-                    coreference=args.coreference
                 )
 
             logger.info("***** Running predictions *****")
@@ -1607,10 +1322,6 @@ def main():
                 all_candidates_labels_set = get_all_pad_candidates_labels_set(eval_features)
                 eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_zps,
                                           all_candidates_labels_set)
-            elif args.pas_analysis is True:
-                all_ng_arg_ids_set = torch.tensor([f.ng_arg_ids_set for f in eval_features], dtype=torch.long)
-                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index,
-                                          all_ng_arg_ids_set)
             else:
                 eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
             if args.local_rank == -1:
@@ -1634,9 +1345,6 @@ def main():
                 elif args.chinese_zero is True:
                     all_zps = rests[0].to(device)
                     all_candidates_labels_set = rests[1].to(device)
-                elif args.pas_analysis is True:
-                    ng_arg_ids = rests[0]
-                    ng_arg_ids = ng_arg_ids.to(device)
 
                 with torch.no_grad():
                     if args.span_based_coreference is True:
@@ -1647,12 +1355,10 @@ def main():
                     elif args.chinese_zero is True:
                         ret_dict = model(input_ids, segment_ids, input_mask, all_zps, all_candidates_labels_set,
                                          is_training=False)
-                    elif args.pas_analysis is True:
-                        ret_dict = model(input_ids, segment_ids, input_mask, ng_arg_ids_set=ng_arg_ids)
                     else:
                         ret_dict = model(input_ids, segment_ids, input_mask)
                 for i, example_index in enumerate(example_indices):
-                    heads, arguments_set, token_tags, topk_heads, topk_dep_labels = None, None, None, None, None
+                    heads, token_tags, topk_heads, topk_dep_labels = None, None, None, None
                     top_spans, antecedent_indices, predicted_antecedents = None, None, None
                     antecedent_labels_set = None
                     if args.span_based_coreference is True:
@@ -1661,8 +1367,6 @@ def main():
                         predicted_antecedents = ret_dict["predicted_antecedents"][i].detach().cpu().tolist()
                     elif args.chinese_zero is True:
                         antecedent_labels_set = ret_dict["antecedent_labels_set"][i].detach().cpu().tolist()
-                    elif args.pas_analysis is True:
-                        arguments_set = ret_dict["arguments_set"][i].detach().cpu().tolist()
                     else:
                         heads = ret_dict["heads"][i].detach().cpu().tolist()
                         topk_heads = ret_dict["topk_heads"][i].detach().cpu().tolist()
@@ -1680,7 +1384,6 @@ def main():
                                                  heads=heads,
                                                  topk_heads=topk_heads,
                                                  topk_dep_labels=topk_dep_labels,
-                                                 arguments_set=arguments_set,
                                                  token_tags=token_tags,
                                                  top_spans=top_spans,
                                                  antecedent_indices=antecedent_indices,
@@ -1702,9 +1405,9 @@ def main():
                 write_predictions(eval_examples, eval_features, all_results, output_prediction_file,
                                   args.max_seq_length,
                                   knp_dpnd, knp_case,
-                                  pas_analysis=args.pas_analysis, cases=cases, num_special_tokens=num_special_tokens,
+                                  num_special_tokens=num_special_tokens,
                                   special_tokens=special_tokens,
-                                  coreference=args.coreference, parsing=args.parsing,
+                                  parsing=args.parsing,
                                   word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
                                   subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
                                   estimate_dep_label=args.estimate_dep_label,
@@ -1719,7 +1422,6 @@ def main():
 def preprocess_vocab(tokenizer, args):
     num_expand_vocab = 0
     num_finetuning_added_tokens = 0
-    num_special_tokens = 0
 
     finetuning_added_tokens = None
     if args.finetuning_added_tokens is not None:

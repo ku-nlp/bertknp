@@ -49,6 +49,7 @@ PRETRAINED_MODEL_ARCHIVE_MAP = {
 CONFIG_NAME = 'bert_config.json'
 WEIGHTS_NAME = 'pytorch_model.bin'
 
+
 def gelu(x):
     """Implementation of the gelu activation function.
         For information: OpenAI GPT's gelu is slightly different (and gives slightly different results):
@@ -169,6 +170,7 @@ except ImportError:
             s = (x - u).pow(2).mean(-1, keepdim=True)
             x = (x - u) / torch.sqrt(s + self.variance_epsilon)
             return self.weight * x + self.bias
+
 
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings.
@@ -836,7 +838,7 @@ class BertForNextSentencePrediction(PreTrainedBertModel):
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, next_sentence_label=None):
         _, pooled_output = self.bert(input_ids, token_type_ids, attention_mask,
                                      output_all_encoded_layers=False)
-        seq_relationship_score = self.cls( pooled_output)
+        seq_relationship_score = self.cls(pooled_output)
 
         if next_sentence_label is not None:
             loss_fct = CrossEntropyLoss(ignore_index=-1)
@@ -1179,15 +1181,13 @@ class BertForParsing(PreTrainedBertModel):
     """
     def __init__(self, config, parsing_algorithm="zhang",
                  estimate_dep_label=False,
-                 pas_analysis=False, num_case=1, token_label_vocabulary=None, num_topk_heads=70,
+                 token_label_vocabulary=None, num_topk_heads=70,
                  arc_representation_dim=400, tag_representation_dim=400):
         super(BertForParsing, self).__init__(config)
         self.bert = BertModel(config)
         # TODO check with Google if it's normal there is no dropout on the token classifier of SQuAD in the TF version
         # self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        self.pas_analysis = pas_analysis
-        self.num_case = num_case
         self.num_topk_heads = num_topk_heads
         self.parsing_algorithm = parsing_algorithm
         self.estimate_dep_label = estimate_dep_label
@@ -1202,14 +1202,9 @@ class BertForParsing(PreTrainedBertModel):
             
         # head selection [Zhang+ 16]
         elif self.parsing_algorithm == "zhang":
-            if self.pas_analysis is True:
-                self.W_a = nn.Linear(config.hidden_size, config.hidden_size * num_case)        
-                self.U_a = nn.Linear(config.hidden_size, config.hidden_size * num_case)
-                self.v_a = nn.Linear(config.hidden_size, 1, bias=False)
-            else:
-                self.W_a = nn.Linear(config.hidden_size, config.hidden_size)        
-                self.U_a = nn.Linear(config.hidden_size, config.hidden_size)
-                self.v_a = nn.Linear(config.hidden_size, num_case, bias=False)
+            self.W_a = nn.Linear(config.hidden_size, config.hidden_size)
+            self.U_a = nn.Linear(config.hidden_size, config.hidden_size)
+            self.v_a = nn.Linear(config.hidden_size, 1, bias=False)
 
         self.token_label_vocabulary = token_label_vocabulary
         if self.token_label_vocabulary is not None:
@@ -1230,7 +1225,7 @@ class BertForParsing(PreTrainedBertModel):
                 
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids, attention_mask, heads=None, arguments_set=None, ng_arg_ids_set=None, token_tags=None):
+    def forward(self, input_ids, token_type_ids, attention_mask, heads=None, token_tags=None):
         sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
         batchsize = sequence_output.size(0)
         sequence_length = sequence_output.size(1)
@@ -1249,34 +1244,19 @@ class BertForParsing(PreTrainedBertModel):
         elif self.parsing_algorithm == "zhang":
             g_logits = self.get_glogits_zhang(sequence_output, batchsize, sequence_length)
                                          
-        if self.pas_analysis is True:
-            # [batchsize, sequence_length, sequence_length, case_num] -> [batchsize, sequence_length, case_num, sequence_length]
-            g_logits = g_logits.permute(0, 1, 3, 2).contiguous()
-        else:
-            g_logits = g_logits.squeeze(-1)
+        g_logits = g_logits.squeeze(-1)
 
-        if self.pas_analysis is True:
-            extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-            ng_arg_ids_mask = ng_arg_ids_set.unsqueeze(2)
-            # [batchsize, sequence_length, 1, sequence_length]
-            # ng_arg_ids_mask = ng_arg_ids_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
-            ng_arg_ids_mask = ng_arg_ids_mask * -10000.0
-        else:
-            extended_attention_mask = attention_mask.unsqueeze(2)
+        extended_attention_mask = attention_mask.unsqueeze(2)
         
         # extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype) # fp16 compatibility
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
         g_logits += extended_attention_mask
 
-        if self.pas_analysis is True:
-            g_logits += ng_arg_ids_mask
-            
         # not to modify self
-        if self.pas_analysis is False:
-            seq_length = input_ids.size(1)
-            eye_mask = torch.eye(seq_length, device=input_ids.device).to(dtype=input_ids.dtype) * -10000.0
-            g_logits += eye_mask.unsqueeze(0)
+        seq_length = input_ids.size(1)
+        eye_mask = torch.eye(seq_length, device=input_ids.device).to(dtype=input_ids.dtype) * -10000.0
+        g_logits += eye_mask.unsqueeze(0)
 
         token_tags_logits = {}
         if self.token_label_vocabulary is not None:
@@ -1287,76 +1267,51 @@ class BertForParsing(PreTrainedBertModel):
                     token_tags_logits[namespace] = getattr(self, "tag_classifier_" + namespace)(sequence_output)
 
         ret_dict = {}
-        if self.pas_analysis is True:
-            # training
-            if arguments_set is not None:
+        # training
+        if heads is not None or token_tags is not None:
+            loss = None
+            loss_fct = CrossEntropyLoss(ignore_index=-1)
+            if heads is not None:
                 sequence_length = input_ids.size(1)
 
-                loss_fct = CrossEntropyLoss(ignore_index=-1)
-                loss = loss_fct(g_logits.view(-1, sequence_length), arguments_set.view(-1))
-                return loss
-            # testing
-            else:
-                _, arguments_set = torch.max(g_logits, dim=3)
-                ret_dict["arguments_set"] = arguments_set
-                
-                return ret_dict
+                loss = loss_fct(g_logits.view(-1, sequence_length), heads.view(-1))
+
+            if token_tags is not None:
+                for namespace in token_tags:
+                    if namespace == "dep_label":
+                        _loss = self.get_dep_labels(sequence_output, heads, dep_labels=token_tags[namespace])
+                    else:
+                        _loss = loss_fct(token_tags_logits[namespace].view(-1, token_tags_logits[namespace].size(-1)), token_tags[namespace].view(-1))
+                    if loss is not None:
+                        loss += _loss
+                    else:
+                        loss = _loss
+            assert loss is not None
+            return loss
+        # testing
         else:
-            # training
-            if heads is not None or token_tags is not None:
-                loss = None
-                loss_fct = CrossEntropyLoss(ignore_index=-1)                
-                if heads is not None:
-                    sequence_length = input_ids.size(1)
+            _, heads = torch.max(g_logits, dim=2)
+            ret_dict["heads"] = heads
+            _, ret_dict["topk_heads"] = torch.topk(g_logits, dim=2, k=self.num_topk_heads)
 
-                    loss = loss_fct(g_logits.view(-1, sequence_length), heads.view(-1))
+            if self.token_label_vocabulary is not None:
+                ret_dict["token_tags"] = {}
+                for namespace in token_tags_logits:
+                    _, ret_tags = torch.max(token_tags_logits[namespace], dim=2)
+                    ret_dict["token_tags"][namespace] = ret_tags
 
-                if token_tags is not None:
-                    for namespace in token_tags:
-                        if namespace == "dep_label":
-                            _loss = self.get_dep_labels(sequence_output, heads, dep_labels=token_tags[namespace])
-                        else:
-                            _loss = loss_fct(token_tags_logits[namespace].view(-1, token_tags_logits[namespace].size(-1)), token_tags[namespace].view(-1))
-                        if loss is not None:
-                            loss += _loss
-                        else:
-                            loss = _loss
-                assert loss is not None
-                return loss
-            # testing
-            else:
-                _, heads = torch.max(g_logits, dim=2)
-                ret_dict["heads"] = heads
-                _, ret_dict["topk_heads"] = torch.topk(g_logits, dim=2, k=self.num_topk_heads)
+                # dep_label
+                if self.estimate_dep_label is True:
+                    ret_dict["topk_dep_labels"] = self.get_topk_dep_labels(sequence_output, ret_dict["topk_heads"])
 
-                if self.token_label_vocabulary is not None:
-                    ret_dict["token_tags"] = {}                    
-                    for namespace in token_tags_logits:
-                        _, ret_tags = torch.max(token_tags_logits[namespace], dim=2)                        
-                        ret_dict["token_tags"][namespace] = ret_tags
-
-                    # dep_label
-                    if self.estimate_dep_label is True:
-                        ret_dict["topk_dep_labels"] = self.get_topk_dep_labels(sequence_output, ret_dict["topk_heads"])
-
-                return ret_dict
+            return ret_dict
 
     def get_glogits_zhang(self, sequence_output, batchsize, sequence_length):
-        if self.pas_analysis is True:
-            # [batchsize, sequence_length, hidden_size * num_case]
-            h_i = self.W_a(sequence_output)
-            h_j = self.U_a(sequence_output)
-            # [batchsize, sequence_length, sequence_length]
-            h_i = h_i.view(batchsize, sequence_length, self.num_case, -1)
-            h_j = h_j.view(batchsize, sequence_length, self.num_case, -1)
-            # [batchsize, sequence_length, sequence_length, case_num]
-            g_logits = self.v_a(torch.tanh(h_i.unsqueeze(1) + h_j.unsqueeze(2))).squeeze(-1)
-        else:
-            # [batchsize, sequence_length, hidden_size]
-            h_i = self.W_a(sequence_output)
-            h_j = self.U_a(sequence_output)
-            # [batchsize, sequence_length, sequence_length]
-            g_logits = self.v_a(torch.tanh(h_i.unsqueeze(1) + h_j.unsqueeze(2)))
+        # [batchsize, sequence_length, hidden_size]
+        h_i = self.W_a(sequence_output)
+        h_j = self.U_a(sequence_output)
+        # [batchsize, sequence_length, sequence_length]
+        g_logits = self.v_a(torch.tanh(h_i.unsqueeze(1) + h_j.unsqueeze(2)))
 
         return g_logits
     
