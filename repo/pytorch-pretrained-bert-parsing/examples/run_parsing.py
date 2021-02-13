@@ -203,8 +203,8 @@ def sprint_tag_tree(knp_result):
     return tlist.sprint_tree()
 
 
-def from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
-                              output_tree=False):
+def write_knp_result_from_conllu(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
+                                 output_tree=False):
     # convert a result to KNP format
     for examples, features, results in zip(all_examples, all_features, all_results):
         knp_result = knp_dpnd.parse(get_sentence_str(examples))
@@ -603,8 +603,8 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
 
     if knp_mode:
         writer = sys.stdout
-        from_conllu_to_knp_result(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
-                                  output_tree)
+        write_knp_result_from_conllu(knp_dpnd, knp_case, all_examples, all_features, all_results, writer,
+                                     max_seq_length, output_tree)
         writer.flush()
     else:
         writer = open(output_prediction_file, "w", encoding="utf-8")
