@@ -52,7 +52,8 @@ setup(
                       'numpy',
                       'boto3',
                       'requests',
-                      'tqdm'],
+                      'tqdm',
+                      'pyknp'],
     python_requires='>=3.5.0',
     tests_require=['pytest'],
     classifiers=[

@@ -11,12 +11,11 @@ Install the following tools beforehand.
 
 ## Preparation
 
-1. You should install the following libraries in a python virtual environment.
+1. Install the dependencies in a python virtual environment.
     ```bash
     $ pip install repo/pytorch-pretrained-bert-parsing
-    $ pip install pyknp
     ```
-1. Download and install BERT and BERTKNP models
+1. Download and install BERT and BERTKNP models.
     ```bash
     $ ./download_and_install_models.sh
     ```
