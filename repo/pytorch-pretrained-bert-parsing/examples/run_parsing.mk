@@ -25,9 +25,6 @@ BERTKNP := /share/tool/bertknp/bin/bertknp
 JUMANPP := /orange/kawahara/share/tool/jumanpp/cmake-build-dir/src/jumandic/jumanpp
 
 RUN_PARSING_ARGS=
-ifdef WORD_SEGMENTATION
-	RUN_PARSING_ARGS += --word_segmentation
-endif
 ifdef POS_TAGGING
 	RUN_PARSING_ARGS += --pos_tagging
 endif
@@ -42,9 +39,6 @@ ifdef PARSING
 endif
 ifdef ESTIMATE_DEP_LABEL
 	RUN_PARSING_ARGS += --estimate_dep_label
-endif
-ifdef USE_GOLD_WORD_SEGMENTATION_IN_TEST
-	RUN_PARSING_ARGS += --use_gold_segmentation_in_test
 endif
 ifdef USE_GOLD_POS_IN_TEST
 	RUN_PARSING_ARGS += --use_gold_pos_in_test

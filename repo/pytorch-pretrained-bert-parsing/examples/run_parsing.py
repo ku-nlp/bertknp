@@ -279,9 +279,8 @@ def jpp2conll_one_sentence(buf):
 
 
 def read_parsing_examples(input_file, is_training,
-                          parsing=False,
-                          word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
-                          estimate_dep_label=False, use_gold_segmentation_in_test=False, use_gold_pos_in_test=False,
+                          parsing=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
+                          estimate_dep_label=False, use_gold_pos_in_test=False,
                           h2z=False, knp_mode=False, multi_sentences=True):
     """Read a file into a list of ParsingExample."""
     buf_conll = ''
@@ -303,16 +302,14 @@ def read_parsing_examples(input_file, is_training,
     if not buf_conll:
         return []
 
-    return read_parsing_examples_from_buf(buf_conll, is_training, parsing, word_segmentation, pos_tagging,
-                                          subpos_tagging, feats_tagging, estimate_dep_label,
-                                          use_gold_segmentation_in_test, use_gold_pos_in_test, h2z)
+    return read_parsing_examples_from_buf(buf_conll, is_training, parsing, pos_tagging,
+                                          subpos_tagging, feats_tagging, estimate_dep_label, use_gold_pos_in_test, h2z)
 
 
 def read_parsing_examples_from_buf(buf, is_training,
-                                   parsing=False,
-                                   word_segmentation=False, pos_tagging=False, subpos_tagging=False,
+                                   parsing=False, pos_tagging=False, subpos_tagging=False,
                                    feats_tagging=False,
-                                   estimate_dep_label=False, use_gold_segmentation_in_test=False,
+                                   estimate_dep_label=False,
                                    use_gold_pos_in_test=False, h2z=False):
     """Read a buffer into a list of ParsingExample."""
 
@@ -322,7 +319,6 @@ def read_parsing_examples_from_buf(buf, is_training,
     # 1       村山    村山    NNP     NNP     _       2       D       _       _
     words, heads, lines, word_to_char_index = [], [], [], []
     token_tags = defaultdict(list)
-    gold_words = []
     comment = None
     for line in buf.splitlines():
         line = line.strip()
@@ -330,12 +326,6 @@ def read_parsing_examples_from_buf(buf, is_training,
             comment = line
             continue
         if not line:
-            if word_segmentation is True or use_gold_segmentation_in_test is True:
-                if is_training is True:
-                    # convert word to char indices (except -1 and 0 (Root))
-                    heads = [word_to_char_index[head - 1] + 1 if head != -1 and head != 0 else head for head in heads]
-                else:
-                    heads = [-1] * len(heads)
             example = ParsingExample(
                 example_id,
                 words,
@@ -343,121 +333,33 @@ def read_parsing_examples_from_buf(buf, is_training,
                 heads=heads,
                 token_tags=token_tags,
                 comment=comment,
-                gold_words=gold_words if use_gold_segmentation_in_test else None,
+                gold_words=None,
                 h2z=h2z)
             examples.append(example)
 
             example_id += 1
             words, heads, lines, word_to_char_index = [], [], [], []
             token_tags = defaultdict(list)
-            gold_words = []
             comment = None
             continue
 
         items = line.split("\t")
         word = items[1]
         head = int(items[6])
-        if word_segmentation is True or use_gold_segmentation_in_test is True:
-            if is_training is False:
-                head = -1
-                if use_gold_pos_in_test is False:
-                    items[3] = -1
-                    items[4] = -1
-                if estimate_dep_label is True:
-                    items[7] = "dummy"
-            chars, _token_tags, _heads = get_outputs_for_word_segmentation(word, head, items, word_to_char_index,
-                                                                           is_training=is_training,
-                                                                           word_segmentation=word_segmentation,
-                                                                           parsing=parsing,
-                                                                           char_offset=len(words),
-                                                                           pos_tagging=pos_tagging,
-                                                                           subpos_tagging=subpos_tagging,
-                                                                           feats_tagging=feats_tagging,
-                                                                           estimate_dep_label=estimate_dep_label)
-            words.extend(chars)
-            for namespace in _token_tags:
-                token_tags[namespace].extend(_token_tags[namespace])
-            heads.extend(_heads)
-            if use_gold_segmentation_in_test is True:
-                gold_words.append(word)
-            if use_gold_pos_in_test is True:
-                lines.append(line)
-        else:
-            if is_training is False:
-                head = -1
-                items[6] = "-1"
-                line = "\t".join(items)
+        if is_training is False:
+            head = -1
+            items[6] = "-1"
+            line = "\t".join(items)
 
-            words.append(word)
-            heads.append(head)
-            lines.append(line)
+        words.append(word)
+        heads.append(head)
+        lines.append(line)
 
     return examples
 
 
-def get_outputs_for_word_segmentation(word, head, items, word_to_char_index,
-                                      is_training=True,
-                                      word_segmentation=False,
-                                      parsing=False,
-                                      char_offset=None,
-                                      pos_tagging=False,
-                                      subpos_tagging=False,
-                                      feats_tagging=False,
-                                      estimate_dep_label=False):
-    chars = list(word)
-    char_num = len(chars)
-
-    _heads = []
-    _token_tags = defaultdict(list)
-    for i, char in enumerate(list(word)):
-        if word_segmentation is True:
-            word_segmentation_tag = get_word_segmentation_tag(i, char_num, is_training)
-            _token_tags["word_segmentation"].append(word_segmentation_tag)
-        if i == 0:
-            if parsing is True:
-                _heads.append(int(head))
-            else:
-                _heads.append(-1)
-            if pos_tagging is True:
-                _token_tags["pos"].append(items[3])
-            if subpos_tagging is True:
-                _token_tags["subpos"].append(items[4])
-            if feats_tagging is True:
-                _token_tags["feats"].append(items[5])
-            if estimate_dep_label is True:
-                _token_tags["dep_label"].append(items[7])
-            word_to_char_index.append(i + char_offset)
-        else:
-            _heads.append(-1)
-            if pos_tagging is True:
-                _token_tags["pos"].append(-1)
-            if subpos_tagging is True:
-                _token_tags["subpos"].append(-1)
-            if feats_tagging is True:
-                _token_tags["feats"].append(-1)
-            if estimate_dep_label is True:
-                _token_tags["dep_label"].append(-1)
-
-    return chars, _token_tags, _heads
-
-
-def get_word_segmentation_tag(i, char_num, is_training):
-    """ BIE tagging """
-
-    if is_training is False:
-        return -1
-
-    if i == 0:
-        return "B"
-    elif i == char_num - 1:
-        return "E"
-    else:
-        return "I"
-
-
 def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size,
-                                 is_training, word_segmentation=False,
-                                 use_gold_segmentation_in_test=False,
+                                 is_training,
                                  num_special_tokens=1):
     """Loads a data file into a list of `InputBatch`s."""
 
@@ -480,15 +382,9 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         tokens.append("[CLS]")
         segment_ids.append(0)
         heads.append(-1)
-        if word_segmentation is True or use_gold_segmentation_in_test is True:
-            for namespace in example.token_tag_indices:
-                token_tag_indices[namespace].append(-1)
 
         for j, token in enumerate(all_tokens):
             tokens.append(token)
-            if word_segmentation is True or use_gold_segmentation_in_test is True:
-                for namespace in example.token_tag_indices:
-                    token_tag_indices[namespace].append(example.token_tag_indices[namespace][tok_to_orig_index[j]])
 
             # parsing
             if is_training is False:
@@ -509,9 +405,6 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         # SEP
         tokens.append("[SEP]")
         heads.append(-1)
-        if word_segmentation is True or use_gold_segmentation_in_test is True:
-            for namespace in example.token_tag_indices:
-                token_tag_indices[namespace].append(-1)
         segment_ids.append(0)
 
         input_ids = tokenizer.convert_tokens_to_ids(tokens)
@@ -525,9 +418,6 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
             input_ids.append(0)
             input_mask.append(0)
             heads.append(-1)
-            if word_segmentation is True or use_gold_segmentation_in_test is True:
-                for namespace in example.token_tag_indices:
-                    token_tag_indices[namespace].append(-1)
             segment_ids.append(0)
 
         # ROOT
@@ -535,9 +425,6 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
         input_mask.append(1)
         heads.append(-1)
         segment_ids.append(0)
-        if word_segmentation is True or use_gold_segmentation_in_test is True:
-            for namespace in example.token_tag_indices:
-                token_tag_indices[namespace].append(-1)
 
         assert len(input_ids) == max_seq_length, "input_ids_length ({}) is greater than max_seq_length ({})".format(
             len(input_ids), max_seq_length)
@@ -588,10 +475,8 @@ RawResult = namedtuple("RawResult",
 
 
 def write_predictions(all_examples, all_features, all_results, output_prediction_file, max_seq_length, knp_dpnd,
-                      knp_case, parsing=False,
-                      word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
+                      knp_case, parsing=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
                       estimate_dep_label=False, token_label_vocabulary=None,
-                      use_gold_segmentation_in_test=False, use_gold_pos_in_test=False,
                       knp_mode=False, output_tree=False):
     """Write final predictions to the file."""
     if output_prediction_file is not None:
@@ -608,28 +493,18 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
             if example.comment is not None:
                 writer.write("{}\n".format(example.comment))
 
-            if word_segmentation is True or use_gold_segmentation_in_test is True or use_gold_pos_in_test is True:
-                write_predictions_word_segmentation(example, result, feature, writer, max_seq_length,
-                                                    token_label_vocabulary=token_label_vocabulary,
-                                                    parsing=parsing,
-                                                    pos_tagging=pos_tagging, subpos_tagging=subpos_tagging,
-                                                    feats_tagging=feats_tagging,
-                                                    estimate_dep_label=estimate_dep_label,
-                                                    use_gold_segmentation_in_test=use_gold_segmentation_in_test,
-                                                    use_gold_pos_in_test=use_gold_pos_in_test)
-            else:
-                for line_num, line in enumerate(example.lines):
-                    items = line.split("\t")
-                    # 1 for [CLS]
-                    pred_head_id = result.heads[feature.orig_to_tok_index[line_num] + 1]
-                    # ROOT
-                    if pred_head_id == max_seq_length - 1:
-                        pred_head_id = 0
-                    else:
-                        pred_head_id = feature.tok_to_orig_index[pred_head_id - 1] + 1
+            for line_num, line in enumerate(example.lines):
+                items = line.split("\t")
+                # 1 for [CLS]
+                pred_head_id = result.heads[feature.orig_to_tok_index[line_num] + 1]
+                # ROOT
+                if pred_head_id == max_seq_length - 1:
+                    pred_head_id = 0
+                else:
+                    pred_head_id = feature.tok_to_orig_index[pred_head_id - 1] + 1
 
-                    items[6] = str(pred_head_id)
-                    writer.write("{}\n".format("\t".join(items)))
+                items[6] = str(pred_head_id)
+                writer.write("{}\n".format("\t".join(items)))
 
             writer.write("\n")
         writer.close()
@@ -641,114 +516,6 @@ class Word(object):
         self.string = ""
         self.char_indices = []
         self.parent_word_index = None
-
-
-def write_predictions_word_segmentation(example, result, feature, writer, max_seq_length,
-                                        token_label_vocabulary=None, parsing=False, pos_tagging=False,
-                                        subpos_tagging=False, feats_tagging=False,
-                                        estimate_dep_label=False, use_gold_segmentation_in_test=False,
-                                        use_gold_pos_in_test=False):
-    words, char_to_word_index = [], []
-    if use_gold_segmentation_in_test is True:
-        char_offset = 0
-        for word in example.gold_words:
-            words.append(Word(char_offset))
-            words[-1].string = word
-            for i, char in enumerate(list(word)):
-                char_to_word_index.append(len(words) - 1)
-                words[-1].char_indices.append(char_offset + i)
-            char_offset += len(word)
-    else:
-        # this "words" means characters
-        for i, char in enumerate(example.words_orig if example.h2z is True else example.words):
-            # B tag
-            if i == 0 or token_label_vocabulary["word_segmentation"].index_to_label[
-                result.token_tags["word_segmentation"][feature.orig_to_tok_index[i] + 1]] == "B":
-                words.append(Word(i))
-            words[-1].string += char
-            words[-1].char_indices.append(i)
-            char_to_word_index.append(len(words) - 1)
-
-    root_exist = False
-    for i, word in enumerate(words):
-        head_id = None
-        dep_label = None
-        if parsing is True:
-            for k, head_char_id in enumerate(result.topk_heads[feature.orig_to_tok_index[word.char_index] + 1]):
-                # ROOT
-                if head_char_id == max_seq_length - 1:
-                    if root_exist is True:
-                        continue
-                    head_id = 0
-                    if estimate_dep_label is True:
-                        dep_label = result.topk_dep_labels[feature.orig_to_tok_index[word.char_index] + 1][k]
-                    root_exist = True
-                    break
-                else:
-                    # target word itself
-                    if head_char_id - 1 in word.char_indices:
-                        continue
-                    # out of index
-                    elif head_char_id - 1 >= len(char_to_word_index):
-                        continue
-                    # not to make cycle
-                    elif has_cycle(head_char_id, char_to_word_index, words, i) is True:
-                        continue
-                    else:
-                        word.parent_word_index = char_to_word_index[head_char_id - 1]
-                        head_id = char_to_word_index[head_char_id - 1] + 1
-                        if estimate_dep_label is True:
-                            dep_label = result.topk_dep_labels[feature.orig_to_tok_index[word.char_index] + 1][k]
-                        break
-            assert head_id is not None
-        else:
-            # dummy head (the following is for assuming there are one root node in a sentence)
-            if i == 0:
-                head_id = 0
-            else:
-                head_id = 1
-            dep_label = "dummy"
-
-        if use_gold_pos_in_test is True:
-            items = example.lines[i].split("\t")
-        if pos_tagging is True:
-            pos = token_label_vocabulary["pos"].index_to_label[
-                result.token_tags["pos"][feature.orig_to_tok_index[word.char_index] + 1]]
-        else:
-            if use_gold_pos_in_test is True:
-                pos = items[3]
-            else:
-                pos = "dummy"
-        if subpos_tagging is True:
-            subpos = token_label_vocabulary["subpos"].index_to_label[
-                result.token_tags["subpos"][feature.orig_to_tok_index[word.char_index] + 1]]
-        else:
-            if use_gold_pos_in_test is True:
-                subpos = items[4]
-            else:
-                subpos = "_"
-        if feats_tagging is True:
-            feats = token_label_vocabulary["feats"].index_to_label[
-                result.token_tags["feats"][feature.orig_to_tok_index[word.char_index] + 1]]
-        else:
-            if use_gold_pos_in_test is True:
-                feats = items[5]
-            else:
-                feats = "_"
-        if estimate_dep_label is True:
-            dep_label = token_label_vocabulary["dep_label"].index_to_label[dep_label]
-        else:
-            dep_label = "dummy"
-
-        writer.write(
-            "{index}\t{word}\t{word}\t{pos}\t{subpos}\t{feats}\t{head}\t{dep_label}\t_\t_\n".format(
-                index=i + 1,
-                word=word.string,
-                pos=pos,
-                subpos=subpos,
-                feats=feats,
-                head=head_id,
-                dep_label=dep_label))
 
 
 def has_cycle(head_char_id, char_to_word_index, words, target_word_index):
@@ -865,9 +632,6 @@ def main():
     parser.add_argument("--finetuning_added_tokens", default=None, type=str,
                         help="Added tokens for only fine-tuning.")
     parser.add_argument("--parsing", default=False, action='store_true', help="Perform parsing.")
-    parser.add_argument("--word_segmentation", default=False, action='store_true', help="Perform word segmentation.")
-    parser.add_argument("--use_gold_segmentation_in_test", default=False, action='store_true',
-                        help="Use gold segmentations in testing")
     parser.add_argument("--use_gold_pos_in_test", default=False, action='store_true', help="Use gold POSs in testing")
     parser.add_argument("--pos_tagging", default=False, action='store_true', help="Perform POS tagging.")
     parser.add_argument("--subpos_tagging", default=False, action='store_true', help="Perform SubPOS tagging.")
@@ -946,17 +710,12 @@ def main():
     output_model_file = os.path.join(args.output_dir, "pytorch_model.bin")
     vocab_size = None
     token_label_vocabulary = {}
-    output_token_label_vocabulary = None
-    if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-        output_token_label_vocabulary = os.path.join(args.output_dir, "token_label_vocabulary.bin")
 
     if args.do_train:
         train_examples = read_parsing_examples(
             input_file=args.train_file, is_training=True,
-            parsing=args.parsing,
-            word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+            parsing=args.parsing, pos_tagging=args.pos_tagging,
             subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-            use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
             estimate_dep_label=args.estimate_dep_label, h2z=args.h2z, knp_mode=args.knp_mode,
             multi_sentences=(not args.single_sentence))
         if args.use_training_data_ratio is not None:
@@ -965,9 +724,6 @@ def main():
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
-        if args.word_segmentation is True:
-            token_label_vocabulary["word_segmentation"] = TokenLabelVocabulary("word_segmentation", train_examples,
-                                                                               num_label=3)
         if args.pos_tagging is True:
             token_label_vocabulary["pos"] = TokenLabelVocabulary("pos", train_examples)
         if args.subpos_tagging is True:
@@ -1032,8 +788,6 @@ def main():
             max_seq_length=args.max_seq_length,
             vocab_size=vocab_size,
             is_training=True,
-            word_segmentation=args.word_segmentation,
-            use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
             num_special_tokens=num_special_tokens)
         logger.info("***** Running training *****")
         logger.info("  Num orig examples = %d", len(train_examples))
@@ -1043,20 +797,9 @@ def main():
         all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
         all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
 
-        # word_segmentation, pos tagging, parsing
+        # pos tagging, parsing
         all_heads = torch.tensor([f.heads for f in train_features], dtype=torch.long)
-        if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-            all_token_tags = []
-            for namespace in sorted(token_label_vocabulary.keys()):
-                all_token_tags.append(
-                    torch.tensor([f.token_tag_indices[namespace] for f in train_features], dtype=torch.long))
-            if args.parsing is True:
-                train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads,
-                                           *all_token_tags)
-            else:
-                train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, *all_token_tags)
-        else:
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads)
+        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads)
 
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
@@ -1073,17 +816,7 @@ def main():
                     batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
 
                 token_tags = None
-                if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-                    token_tags = {}
-                    if args.parsing is True:
-                        input_ids, input_mask, segment_ids, heads, *token_tags_array = batch
-                    else:
-                        input_ids, input_mask, segment_ids, *token_tags_array = batch
-                        heads = None
-                    for namespace, _token_tags in zip(sorted(token_label_vocabulary.keys()), token_tags_array):
-                        token_tags[namespace] = _token_tags
-                else:
-                    input_ids, input_mask, segment_ids, heads = batch
+                input_ids, input_mask, segment_ids, heads = batch
                 loss = model(input_ids, segment_ids, input_mask, heads=heads, token_tags=token_tags)
                 tr_loss, nb_tr_steps, global_step = update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps,
                                                                       model, optimizer, global_step, param_optimizer)
@@ -1093,13 +826,9 @@ def main():
         # Save a trained model
         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
         torch.save(model_to_save.state_dict(), output_model_file)
-        if output_token_label_vocabulary is not None:
-            torch.save(token_label_vocabulary, output_token_label_vocabulary)
 
     if args.do_predict:
         # Load a trained model that you have fine-tuned
-        if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-            token_label_vocabulary = torch.load(output_token_label_vocabulary)
         model_state_dict = torch.load(output_model_file,
                                       map_location='cpu' if n_gpu == 0 or args.no_cuda is True else None)
         model = BertForParsing.from_pretrained(args.bert_model, state_dict=model_state_dict,
@@ -1123,18 +852,12 @@ def main():
         while True:
             eval_examples = read_parsing_examples(
                 input_file=args.predict_file, is_training=False,
-                parsing=args.parsing,
-                word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+                parsing=args.parsing, pos_tagging=args.pos_tagging,
                 subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-                use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
                 use_gold_pos_in_test=args.use_gold_pos_in_test,
                 h2z=args.h2z, knp_mode=args.knp_mode, multi_sentences=(not args.single_sentence))
             if len(eval_examples) == 0:
                 break
-
-            if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-                for namespace in token_label_vocabulary:
-                    token_label_vocabulary[namespace].add_indices(eval_examples)
 
             # convert examples to features
             eval_features = convert_examples_to_features(
@@ -1143,8 +866,6 @@ def main():
                 max_seq_length=args.max_seq_length,
                 vocab_size=vocab_size,
                 is_training=False,
-                word_segmentation=args.word_segmentation,
-                use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
                 num_special_tokens=num_special_tokens,
             )
 
@@ -1182,10 +903,6 @@ def main():
                     topk_heads = ret_dict["topk_heads"][i].detach().cpu().tolist()
                     if args.estimate_dep_label is True:
                         topk_dep_labels = ret_dict["topk_dep_labels"][i].detach().cpu().tolist()
-                    if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-                        token_tags = {}
-                        for namespace in ret_dict["token_tags"]:
-                            token_tags[namespace] = ret_dict["token_tags"][namespace][i].detach().cpu().tolist()
 
                     eval_feature = eval_features[example_index.item()]
                     unique_id = int(eval_feature.unique_id)
@@ -1207,13 +924,10 @@ def main():
 
             write_predictions(eval_examples, eval_features, all_results, output_prediction_file,
                               args.max_seq_length, knp_dpnd, knp_case,
-                              parsing=args.parsing,
-                              word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+                              parsing=args.parsing, pos_tagging=args.pos_tagging,
                               subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
                               estimate_dep_label=args.estimate_dep_label,
                               token_label_vocabulary=token_label_vocabulary,
-                              use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                              use_gold_pos_in_test=args.use_gold_pos_in_test,
                               knp_mode=args.knp_mode, output_tree=args.output_tree)
             if args.knp_mode is False:
                 break
