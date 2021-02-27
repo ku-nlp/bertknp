@@ -40,9 +40,6 @@ endif
 ifdef ESTIMATE_DEP_LABEL
 	RUN_PARSING_ARGS += --estimate_dep_label
 endif
-ifdef USE_GOLD_POS_IN_TEST
-	RUN_PARSING_ARGS += --use_gold_pos_in_test
-endif
 ifdef USE_TRAINING_DATA_RATIO
 	RUN_PARSING_ARGS += --use_training_data_ratio $(USE_TRAINING_DATA_RATIO)
 endif

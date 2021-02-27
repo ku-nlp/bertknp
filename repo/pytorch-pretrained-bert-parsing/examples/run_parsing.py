@@ -279,8 +279,6 @@ def jpp2conll_one_sentence(buf):
 
 
 def read_parsing_examples(input_file, is_training,
-                          parsing=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
-                          estimate_dep_label=False, use_gold_pos_in_test=False,
                           h2z=False, knp_mode=False, multi_sentences=True):
     """Read a file into a list of ParsingExample."""
     buf_conll = ''
@@ -302,15 +300,10 @@ def read_parsing_examples(input_file, is_training,
     if not buf_conll:
         return []
 
-    return read_parsing_examples_from_buf(buf_conll, is_training, parsing, pos_tagging,
-                                          subpos_tagging, feats_tagging, estimate_dep_label, use_gold_pos_in_test, h2z)
+    return read_parsing_examples_from_buf(buf_conll, is_training, h2z)
 
 
-def read_parsing_examples_from_buf(buf, is_training,
-                                   parsing=False, pos_tagging=False, subpos_tagging=False,
-                                   feats_tagging=False,
-                                   estimate_dep_label=False,
-                                   use_gold_pos_in_test=False, h2z=False):
+def read_parsing_examples_from_buf(buf, is_training, h2z=False):
     """Read a buffer into a list of ParsingExample."""
 
     examples = []
@@ -475,8 +468,7 @@ RawResult = namedtuple("RawResult",
 
 
 def write_predictions(all_examples, all_features, all_results, output_prediction_file, max_seq_length, knp_dpnd,
-                      knp_case, parsing=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
-                      estimate_dep_label=False, token_label_vocabulary=None,
+                      knp_case,
                       knp_mode=False, output_tree=False):
     """Write final predictions to the file."""
     if output_prediction_file is not None:
@@ -632,7 +624,6 @@ def main():
     parser.add_argument("--finetuning_added_tokens", default=None, type=str,
                         help="Added tokens for only fine-tuning.")
     parser.add_argument("--parsing", default=False, action='store_true', help="Perform parsing.")
-    parser.add_argument("--use_gold_pos_in_test", default=False, action='store_true', help="Use gold POSs in testing")
     parser.add_argument("--pos_tagging", default=False, action='store_true', help="Perform POS tagging.")
     parser.add_argument("--subpos_tagging", default=False, action='store_true', help="Perform SubPOS tagging.")
     parser.add_argument("--feats_tagging", default=False, action='store_true', help="Perform Feats tagging.")
@@ -713,10 +704,7 @@ def main():
 
     if args.do_train:
         train_examples = read_parsing_examples(
-            input_file=args.train_file, is_training=True,
-            parsing=args.parsing, pos_tagging=args.pos_tagging,
-            subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-            estimate_dep_label=args.estimate_dep_label, h2z=args.h2z, knp_mode=args.knp_mode,
+            input_file=args.train_file, is_training=True, h2z=args.h2z, knp_mode=args.knp_mode,
             multi_sentences=(not args.single_sentence))
         if args.use_training_data_ratio is not None:
             num_train_example = int(len(train_examples) * args.use_training_data_ratio)
@@ -851,11 +839,8 @@ def main():
         # read examples
         while True:
             eval_examples = read_parsing_examples(
-                input_file=args.predict_file, is_training=False,
-                parsing=args.parsing, pos_tagging=args.pos_tagging,
-                subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-                use_gold_pos_in_test=args.use_gold_pos_in_test,
-                h2z=args.h2z, knp_mode=args.knp_mode, multi_sentences=(not args.single_sentence))
+                input_file=args.predict_file, is_training=False, h2z=args.h2z, knp_mode=args.knp_mode,
+                multi_sentences=(not args.single_sentence))
             if len(eval_examples) == 0:
                 break
 
@@ -924,10 +909,6 @@ def main():
 
             write_predictions(eval_examples, eval_features, all_results, output_prediction_file,
                               args.max_seq_length, knp_dpnd, knp_case,
-                              parsing=args.parsing, pos_tagging=args.pos_tagging,
-                              subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-                              estimate_dep_label=args.estimate_dep_label,
-                              token_label_vocabulary=token_label_vocabulary,
                               knp_mode=args.knp_mode, output_tree=args.output_tree)
             if args.knp_mode is False:
                 break

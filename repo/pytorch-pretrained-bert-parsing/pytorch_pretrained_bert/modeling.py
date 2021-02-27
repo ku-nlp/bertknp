@@ -970,7 +970,8 @@ class BertForMultipleChoice(PreTrainedBertModel):
         flat_input_ids = input_ids.view(-1, input_ids.size(-1))
         flat_token_type_ids = token_type_ids.view(-1, token_type_ids.size(-1))
         flat_attention_mask = attention_mask.view(-1, attention_mask.size(-1))
-        _, pooled_output = self.bert(flat_input_ids, flat_token_type_ids, flat_attention_mask, output_all_encoded_layers=False)
+        _, pooled_output = self.bert(flat_input_ids, flat_token_type_ids, flat_attention_mask,
+                                     output_all_encoded_layers=False)
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
         reshaped_logits = logits.view(-1, self.num_choices)
@@ -1227,8 +1228,6 @@ class BertForParsing(PreTrainedBertModel):
 
     def forward(self, input_ids, token_type_ids, attention_mask, heads=None, token_tags=None):
         sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
-        batchsize = sequence_output.size(0)
-        sequence_length = sequence_output.size(1)
 
         if self.parsing_algorithm == "biaffine":
             h_i = torch.relu(self.child_arc_linear(sequence_output))
@@ -1242,7 +1241,7 @@ class BertForParsing(PreTrainedBertModel):
             g_logits = g_logits + bias
             
         elif self.parsing_algorithm == "zhang":
-            g_logits = self.get_glogits_zhang(sequence_output, batchsize, sequence_length)
+            g_logits = self.get_glogits_zhang(sequence_output)
                                          
         g_logits = g_logits.squeeze(-1)
 
@@ -1281,7 +1280,8 @@ class BertForParsing(PreTrainedBertModel):
                     if namespace == "dep_label":
                         _loss = self.get_dep_labels(sequence_output, heads, dep_labels=token_tags[namespace])
                     else:
-                        _loss = loss_fct(token_tags_logits[namespace].view(-1, token_tags_logits[namespace].size(-1)), token_tags[namespace].view(-1))
+                        _loss = loss_fct(token_tags_logits[namespace].view(-1, token_tags_logits[namespace].size(-1)),
+                                         token_tags[namespace].view(-1))
                     if loss is not None:
                         loss += _loss
                     else:
@@ -1306,7 +1306,7 @@ class BertForParsing(PreTrainedBertModel):
 
             return ret_dict
 
-    def get_glogits_zhang(self, sequence_output, batchsize, sequence_length):
+    def get_glogits_zhang(self, sequence_output):
         # [batchsize, sequence_length, hidden_size]
         h_i = self.W_a(sequence_output)
         h_j = self.U_a(sequence_output)
