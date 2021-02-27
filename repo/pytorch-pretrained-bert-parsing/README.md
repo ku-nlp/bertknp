@@ -62,42 +62,6 @@ $ make all -f Makefile.run_parsing PRETRAINED_MODEL_DIR=/larch/share/bert/google
 ```bash
 $ make all -f Makefile.run_parsing PRETRAINED_MODEL_DIR=/larch/shibata/bert/preprocess/190117_char_wikipedia/pretraining_model_15e TASK_NAME=JAPANESE_USD_test WORD_SEGMENTATION=1 POS_TAGGING=1 FEATS_TAGGING=1 MAX_SEQ_LENGTH=256 TRAIN_FILE=/larch/shibata/UD/ud-treebanks-v2.2/UD_Japanese-GSD/ja_gsd-ud-train.conllu PREDICT_FILE=/larch/shibata/UD/result/UD_Japanese-GSD/ete/ja_gsd.test.pred.ete.conllu ESTIMATE_DEP_LABEL=1 UD_EVAL_FILE=conll18_ud_eval.py GOLD_FILE=/larch/shibata/UD/ud-treebanks-v2.2/UD_Japanese-GSD/ja_gsd-ud-test.conllu H2Z=1
 ```
-## Predicate Argument Structure Analysis
-### 1. Preparation
-```bash
-$ git clone git@bitbucket.org:ku_nlp/nn_based_anaphora_resolution.git
-```
-
-### 2. Model Training and Testing
-```bash
-$ cd examples
-$ make all PAS_ANALYSIS=1 -f Makefile.run_parsing PRETRAINED_MODEL_DIR=/larch/shibata/bert/preprocess/181213_subword_wikipedia/pretraining_model_30e TASK_NAME=181213_subword_wikipedia_30e_e4 OUTPUT_DIR_BASENAME=/somewhere NN_BASED_ANAPHORA_RESOLUTION_DIR=/somewhere2/nn_based_anaphora_resolution COREFERENCE=1 NUM_TRAIN_EPOCHS=4 PYTHON2_COMMAND=/home/shibata/chainer-latest-24/bin/python
-```
-- Scores can be found at the end of `/somewhere/result.txt`.
-- `/somewhere/result.html` is a result visualization file. Put this file and `nn_based_anaphora_resolution/cgi/result.css' under public_html, and access `result.html`.
-
-## Coreference Resolution in English
-### 1. Preparation
-Install AllenNLP:
-```bash
-$ git clone https://github.com/allenai/allennlp.git
-$ cd allennlp
-$ pip install .
-```
-
-### 2. Installation
-Clone the repository and run:
-```bash
-pip install .
-```
-
-### 3. Model Training and Testing
-- We need more than one GPUs. 
-```bash
-$ export CUDA_VISIBLE_DEVICES="0,1"
-$ cd examples
-$ python run_parsing.py --bert_model /larch/share/bert/google_pretrained_models/cased_L-12_H-768_A-12 --output_dir /somewhere --max_seq_length 300 --num_max_text_length 200 --span_based_coreference --do_train --train_file /larch/shibata/coref/conll-2012/train.english.v4_gold_conll --predict_file /larch/shibata/coref/conll-2012/dev.english.v4_gold_conll --do_predict
-```
 
 ## Content
 

@@ -901,8 +901,6 @@ def main():
     parser.add_argument("--parsing_algorithm", choices=["biaffine", "zhang"], default="zhang",
                         help="biaffine [Dozat+ 17] or zhang [Zhang+ 16]")
     parser.add_argument("--estimate_dep_label", default=False, action='store_true', help="Estimate dependency labels.")
-    parser.add_argument("--span_based_coreference", default=False, action='store_true',
-                        help="Perform coreference resolution (English).")
     parser.add_argument("--chinese_zero", default=False, action='store_true',
                         help="Perform zero anaphora resolution (Chinese).")
     parser.add_argument("--num_max_text_length",
@@ -967,8 +965,6 @@ def main():
             raise ValueError(
                 "If `do_train` is True, then `train_file` must be specified.")
 
-    # if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-    #     raise ValueError("Output directory () already exists and is not empty.")
     os.makedirs(args.output_dir, exist_ok=True)
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=False, lang=args.lang)
@@ -978,22 +974,13 @@ def main():
 
     output_model_file = os.path.join(args.output_dir, "pytorch_model.bin")
     vocab_size = None
-    train_examples = None
-    num_train_steps = None
     token_label_vocabulary = {}
     output_token_label_vocabulary = None
     if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
         output_token_label_vocabulary = os.path.join(args.output_dir, "token_label_vocabulary.bin")
 
     if args.do_train:
-        if args.span_based_coreference is True:
-            # TODO: Resolve import error
-            raise ImportError
-            # from span_based_coreference import read_span_base_coreference_examples, \
-            #     convert_examples_to_features_span_based_coreference
-            # train_examples = read_span_base_coreference_examples(input_file=args.train_file, is_training=True,
-            #                                                      num_max_text_length=args.num_max_text_length)
-        elif args.chinese_zero is True:
+        if args.chinese_zero is True:
             # TODO: Resolve import error
             raise ImportError
             # from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
@@ -1026,15 +1013,7 @@ def main():
             token_label_vocabulary["dep_label"] = TokenLabelVocabulary("dep_label", train_examples)
 
         # Prepare model
-        if args.span_based_coreference is True:
-            # TODO: Resolve import error
-            raise ImportError
-            # from pytorch_pretrained_bert.modeling_span_based_coreference_resolver import \
-            #     BertForSpanBasedCoreferenceResolver
-            # model = BertForSpanBasedCoreferenceResolver.from_pretrained(
-            #     args.bert_model,
-            #     cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
-        elif args.chinese_zero is True:
+        if args.chinese_zero is True:
             # TODO: Resolve import error
             raise ImportError
             # from pytorch_pretrained_bert.modeling_chinese_zero import BertForChineseZero
@@ -1090,16 +1069,7 @@ def main():
                              t_total=t_total)
 
         global_step = 0
-        if args.span_based_coreference is True:
-            # TODO: Resolve import error
-            raise ImportError
-            # train_features = convert_examples_to_features_span_based_coreference(
-            #     examples=train_examples,
-            #     tokenizer=tokenizer,
-            #     max_seq_length=args.max_seq_length,
-            #     is_training=True,
-            #     logger=logger)
-        elif args.chinese_zero is True:
+        if args.chinese_zero is True:
             # TODO: Resolve import error
             raise ImportError
             # train_features = convert_examples_to_features_chinese_zero(
@@ -1127,19 +1097,8 @@ def main():
         all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
         all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
 
-        # span_based_coreference
-        if args.span_based_coreference is True:
-            all_spans = pad_sequence([torch.tensor(f.spans, dtype=torch.long) for f in train_features],
-                                     batch_first=True, padding_value=-1)
-            all_span_labels = pad_sequence([torch.tensor(f.span_labels, dtype=torch.long) for f in train_features],
-                                           batch_first=True, padding_value=(-1, -1))
-            all_is_mention_labels = pad_sequence(
-                [torch.tensor(f.is_mention_labels, dtype=torch.long) for f in train_features], batch_first=True,
-                padding_value=-1)
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_spans, all_span_labels,
-                                       all_is_mention_labels)
         # chinese_zero
-        elif args.chinese_zero is True:
+        if args.chinese_zero is True:
             all_zps = pad_sequence([torch.tensor(f.zps, dtype=torch.long) for f in train_features], batch_first=True,
                                    padding_value=-1)
             all_candidates_labels_set = get_all_pad_candidates_labels_set(train_features)
@@ -1175,11 +1134,7 @@ def main():
                 if n_gpu == 1:
                     batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
 
-                if args.span_based_coreference is True:
-                    input_ids, input_mask, segment_ids, spans, span_labels, is_mention_labels = batch
-                    loss = model(input_ids, segment_ids, input_mask, spans, span_labels=span_labels,
-                                 is_mention_labels=is_mention_labels)
-                elif args.chinese_zero is True:
+                if args.chinese_zero is True:
                     input_ids, input_mask, segment_ids, zps, candidates_labels_set = batch
                     loss = model(input_ids, segment_ids, input_mask, zps, candidates_labels_set)
                 else:
@@ -1213,13 +1168,7 @@ def main():
             token_label_vocabulary = torch.load(output_token_label_vocabulary)
         model_state_dict = torch.load(output_model_file,
                                       map_location='cpu' if n_gpu == 0 or args.no_cuda is True else None)
-        if args.span_based_coreference is True:
-            # TODO: Resolve import error
-            raise ImportError
-            # from pytorch_pretrained_bert.modeling_span_based_coreference_resolver import \
-            #     BertForSpanBasedCoreferenceResolver
-            # model = BertForSpanBasedCoreferenceResolver.from_pretrained(args.bert_model, state_dict=model_state_dict)
-        elif args.chinese_zero is True:
+        if args.chinese_zero is True:
             # TODO: Resolve import error
             raise ImportError
             # from pytorch_pretrained_bert.modeling_chinese_zero import BertForChineseZero
@@ -1245,14 +1194,7 @@ def main():
 
         # read examples
         while True:
-            if args.span_based_coreference is True:
-                # TODO: Resolve import error
-                raise ImportError
-                # from span_based_coreference import read_span_base_coreference_examples, \
-                #     convert_examples_to_features_span_based_coreference
-                # eval_examples = read_span_base_coreference_examples(input_file=args.predict_file, is_training=False,
-                #                                                     num_max_text_length=args.num_max_text_length)
-            elif args.chinese_zero is True:
+            if args.chinese_zero is True:
                 # TODO: Resolve import error
                 raise ImportError
                 # from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
@@ -1274,16 +1216,7 @@ def main():
                     token_label_vocabulary[namespace].add_indices(eval_examples)
 
             # convert examples to features
-            if args.span_based_coreference is True:
-                # TODO: Resolve import error
-                raise ImportError
-                # eval_features = convert_examples_to_features_span_based_coreference(
-                #     examples=eval_examples,
-                #     tokenizer=tokenizer,
-                #     max_seq_length=args.max_seq_length,
-                #     is_training=False,
-                #     logger=logger)
-            elif args.chinese_zero is True:
+            if args.chinese_zero is True:
                 # TODO: Resolve import error
                 raise ImportError
                 # eval_features = convert_examples_to_features_chinese_zero(
@@ -1313,11 +1246,7 @@ def main():
             all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
             all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
             all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
-            if args.span_based_coreference is True:
-                all_spans = pad_sequence([torch.tensor(f.spans, dtype=torch.long) for f in eval_features],
-                                         batch_first=True, padding_value=-1)
-                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_spans)
-            elif args.chinese_zero is True:
+            if args.chinese_zero is True:
                 all_zps = pad_sequence([torch.tensor(f.zps, dtype=torch.long) for f in eval_features], batch_first=True,
                                        padding_value=-1)
                 all_candidates_labels_set = get_all_pad_candidates_labels_set(eval_features)
@@ -1340,20 +1269,12 @@ def main():
                 input_ids = input_ids.to(device)
                 input_mask = input_mask.to(device)
                 segment_ids = segment_ids.to(device)
-                if args.span_based_coreference is True:
-                    span_ids = rests[0]
-                    span_ids = span_ids.to(device)
-                elif args.chinese_zero is True:
+                if args.chinese_zero is True:
                     all_zps = rests[0].to(device)
                     all_candidates_labels_set = rests[1].to(device)
 
                 with torch.no_grad():
-                    if args.span_based_coreference is True:
-                        metadata = [eval_features[example_index.item()].metadata for example_index in example_indices]
-                        # print("metadata", [ m.metadata["clusters"] for m in metadata])
-                        ret_dict = model(input_ids, segment_ids, input_mask, span_ids, metadata=metadata)
-                        # print("predicted", ret_dict["predicted_antecedents"])
-                    elif args.chinese_zero is True:
+                    if args.chinese_zero is True:
                         ret_dict = model(input_ids, segment_ids, input_mask, all_zps, all_candidates_labels_set,
                                          is_training=False)
                     else:
@@ -1362,11 +1283,7 @@ def main():
                     heads, token_tags, topk_heads, topk_dep_labels = None, None, None, None
                     top_spans, antecedent_indices, predicted_antecedents = None, None, None
                     antecedent_labels_set = None
-                    if args.span_based_coreference is True:
-                        top_spans = ret_dict["top_spans"][i].detach().cpu().tolist()
-                        antecedent_indices = ret_dict["antecedent_indices"][i].detach().cpu().tolist()
-                        predicted_antecedents = ret_dict["predicted_antecedents"][i].detach().cpu().tolist()
-                    elif args.chinese_zero is True:
+                    if args.chinese_zero is True:
                         antecedent_labels_set = ret_dict["antecedent_labels_set"][i].detach().cpu().tolist()
                     else:
                         heads = ret_dict["heads"][i].detach().cpu().tolist()
@@ -1396,26 +1313,20 @@ def main():
                 output_prediction_file = None
             else:
                 output_prediction_file = os.path.join(args.output_dir, args.prediction_result_filename)
-            # output_nbest_file = os.path.join(args.output_dir, "nbest_predictions.json")
-            if args.span_based_coreference is True:
-                pass
-                # batch_clusters = decode_span_based_coreference(all_results)
-                # print(batch_clusters)
-                # evaluate(eval_examples, eval_features, batch_clusters)
-            else:
-                write_predictions(eval_examples, eval_features, all_results, output_prediction_file,
-                                  args.max_seq_length,
-                                  knp_dpnd, knp_case,
-                                  num_special_tokens=num_special_tokens,
-                                  special_tokens=special_tokens,
-                                  parsing=args.parsing,
-                                  word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
-                                  subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-                                  estimate_dep_label=args.estimate_dep_label,
-                                  token_label_vocabulary=token_label_vocabulary,
-                                  use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                                  use_gold_pos_in_test=args.use_gold_pos_in_test,
-                                  chinese_zero=args.chinese_zero, knp_mode=args.knp_mode, output_tree=args.output_tree)
+
+            write_predictions(eval_examples, eval_features, all_results, output_prediction_file,
+                              args.max_seq_length,
+                              knp_dpnd, knp_case,
+                              num_special_tokens=num_special_tokens,
+                              special_tokens=special_tokens,
+                              parsing=args.parsing,
+                              word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+                              subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
+                              estimate_dep_label=args.estimate_dep_label,
+                              token_label_vocabulary=token_label_vocabulary,
+                              use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
+                              use_gold_pos_in_test=args.use_gold_pos_in_test,
+                              chinese_zero=args.chinese_zero, knp_mode=args.knp_mode, output_tree=args.output_tree)
             if args.knp_mode is False:
                 break
 
