@@ -458,7 +458,7 @@ def get_word_segmentation_tag(i, char_num, is_training):
 def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size,
                                  is_training, word_segmentation=False,
                                  use_gold_segmentation_in_test=False,
-                                 num_special_tokens=1, special_tokens=None):
+                                 num_special_tokens=1):
     """Loads a data file into a list of `InputBatch`s."""
 
     unique_id = 1000000000
@@ -584,13 +584,11 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length, vocab_size
 
 RawResult = namedtuple("RawResult",
                        ["unique_id", "heads", "topk_heads", "topk_dep_labels", "token_tags",
-                        "top_spans", "antecedent_indices", "predicted_antecedents",
-                        "antecedent_labels_set"])
+                        "top_spans"])
 
 
-def write_predictions(all_examples, all_features, all_results, output_prediction_file, max_seq_length,
-                      knp_dpnd, knp_case, num_special_tokens=None, special_tokens=None,
-                      parsing=False,
+def write_predictions(all_examples, all_features, all_results, output_prediction_file, max_seq_length, knp_dpnd,
+                      knp_case, parsing=False,
                       word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
                       estimate_dep_label=False, token_label_vocabulary=None,
                       use_gold_segmentation_in_test=False, use_gold_pos_in_test=False,
@@ -1008,10 +1006,10 @@ def main():
 
         # Prepare optimizer
         if args.fp16:
-            param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_()) \
+            param_optimizer = [(n, param.clone().detach().to('cpu').float().requires_grad_())
                                for n, param in model.named_parameters()]
         elif args.optimize_on_cpu:
-            param_optimizer = [(n, param.clone().detach().to('cpu').requires_grad_()) \
+            param_optimizer = [(n, param.clone().detach().to('cpu').requires_grad_())
                                for n, param in model.named_parameters()]
         else:
             param_optimizer = list(model.named_parameters())
@@ -1038,8 +1036,7 @@ def main():
             is_training=True,
             word_segmentation=args.word_segmentation,
             use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-            num_special_tokens=num_special_tokens,
-            special_tokens=special_tokens)
+            num_special_tokens=num_special_tokens)
         logger.info("***** Running training *****")
         logger.info("  Num orig examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
@@ -1151,7 +1148,6 @@ def main():
                 word_segmentation=args.word_segmentation,
                 use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
                 num_special_tokens=num_special_tokens,
-                special_tokens=special_tokens,
             )
 
             logger.info("***** Running predictions *****")
@@ -1183,8 +1179,7 @@ def main():
                     ret_dict = model(input_ids, segment_ids, input_mask)
                 for i, example_index in enumerate(example_indices):
                     heads, token_tags, topk_heads, topk_dep_labels = None, None, None, None
-                    top_spans, antecedent_indices, predicted_antecedents = None, None, None
-                    antecedent_labels_set = None
+                    top_spans = None
                     heads = ret_dict["heads"][i].detach().cpu().tolist()
                     topk_heads = ret_dict["topk_heads"][i].detach().cpu().tolist()
                     if args.estimate_dep_label is True:
@@ -1197,15 +1192,14 @@ def main():
                     eval_feature = eval_features[example_index.item()]
                     unique_id = int(eval_feature.unique_id)
 
-                    all_results.append(RawResult(unique_id=unique_id,
-                                                 heads=heads,
-                                                 topk_heads=topk_heads,
-                                                 topk_dep_labels=topk_dep_labels,
-                                                 token_tags=token_tags,
-                                                 top_spans=top_spans,
-                                                 antecedent_indices=antecedent_indices,
-                                                 predicted_antecedents=predicted_antecedents,
-                                                 antecedent_labels_set=antecedent_labels_set))
+                    all_results.append(
+                        RawResult(unique_id=unique_id,
+                                  heads=heads,
+                                  topk_heads=topk_heads,
+                                  topk_dep_labels=topk_dep_labels,
+                                  token_tags=token_tags,
+                                  top_spans=top_spans)
+                    )
 
             if args.prediction_result_filename == "-":
                 # stdout
@@ -1214,10 +1208,7 @@ def main():
                 output_prediction_file = os.path.join(args.output_dir, args.prediction_result_filename)
 
             write_predictions(eval_examples, eval_features, all_results, output_prediction_file,
-                              args.max_seq_length,
-                              knp_dpnd, knp_case,
-                              num_special_tokens=num_special_tokens,
-                              special_tokens=special_tokens,
+                              args.max_seq_length, knp_dpnd, knp_case,
                               parsing=args.parsing,
                               word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
                               subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
@@ -1300,7 +1291,7 @@ def get_all_pad_candidates_labels_set(features):
     padded_candidate_label_sets = []
     for i, f in enumerate(features):
         padded_candidate_label_sets.append(pad_sequence(
-            [torch.tensor((candidates_labels_set), dtype=torch.long) for candidates_labels_set in
+            [torch.tensor(candidates_labels_set, dtype=torch.long) for candidates_labels_set in
              f.candidates_labels_set],
             batch_first=True, padding_value=-1))
 
