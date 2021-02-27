@@ -594,7 +594,7 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
                       word_segmentation=False, pos_tagging=False, subpos_tagging=False, feats_tagging=False,
                       estimate_dep_label=False, token_label_vocabulary=None,
                       use_gold_segmentation_in_test=False, use_gold_pos_in_test=False,
-                      chinese_zero=False, knp_mode=False, output_tree=False):
+                      knp_mode=False, output_tree=False):
     """Write final predictions to the file."""
     if output_prediction_file is not None:
         logger.info("Writing predictions to: %s" % output_prediction_file)
@@ -622,23 +622,17 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
                                                     use_gold_segmentation_in_test=use_gold_segmentation_in_test,
                                                     use_gold_pos_in_test=use_gold_pos_in_test)
             else:
-                zp_index = 0
                 for line_num, line in enumerate(example.lines):
                     items = line.split("\t")
-                    if chinese_zero is True:
-                        items = output_chinese_zero(items, result, example, zp_index)
-                        if items[2] != "_":
-                            zp_index += 1
+                    # 1 for [CLS]
+                    pred_head_id = result.heads[all_features[example_index].orig_to_tok_index[line_num] + 1]
+                    # ROOT
+                    if pred_head_id == max_seq_length - 1:
+                        pred_head_id = 0
                     else:
-                        # 1 for [CLS]
-                        pred_head_id = result.heads[all_features[example_index].orig_to_tok_index[line_num] + 1]
-                        # ROOT
-                        if pred_head_id == max_seq_length - 1:
-                            pred_head_id = 0
-                        else:
-                            pred_head_id = feature.tok_to_orig_index[pred_head_id - 1] + 1
+                        pred_head_id = feature.tok_to_orig_index[pred_head_id - 1] + 1
 
-                        items[6] = str(pred_head_id)
+                    items[6] = str(pred_head_id)
                     writer.write("{}\n".format("\t".join(items)))
 
             writer.write("\n")
@@ -773,22 +767,6 @@ def has_cycle(head_char_id, char_to_word_index, words, target_word_index):
 
         head_word_index = words[head_word_index].parent_word_index
 
-    return False
-
-
-def output_chinese_zero(items, result, example, zp_index):
-    if items[2] != "_":
-        candidate_strings = []
-        # 1-15%0,1-4%0,1-2%0, ..
-        for candidates_labels, antecedent_label in zip(example.candidates_labels_set[zp_index],
-                                                       result.antecedent_labels_set[zp_index]):
-            candidate_strings.append(
-                "{}-{}%{:.5f}".format(candidates_labels[0], candidates_labels[1], antecedent_label[1]))
-
-        items[2] = ",".join(candidate_strings)
-
-    return items
-
 
 def copy_optimizer_params_to_model(named_params_model, named_params_optimizer):
     """ Utility function for optimize_on_cpu and 16-bits training.
@@ -901,8 +879,6 @@ def main():
     parser.add_argument("--parsing_algorithm", choices=["biaffine", "zhang"], default="zhang",
                         help="biaffine [Dozat+ 17] or zhang [Zhang+ 16]")
     parser.add_argument("--estimate_dep_label", default=False, action='store_true', help="Estimate dependency labels.")
-    parser.add_argument("--chinese_zero", default=False, action='store_true',
-                        help="Perform zero anaphora resolution (Chinese).")
     parser.add_argument("--num_max_text_length",
                         type=int,
                         default=None,
@@ -919,7 +895,6 @@ def main():
                         help="If you use bertknp from pyknp, you should specify this flag.")
 
     args = parser.parse_args()
-    args = postprocess_args(args)
 
     if args.knp_mode:
         # read the pos_list file is specified
@@ -980,20 +955,14 @@ def main():
         output_token_label_vocabulary = os.path.join(args.output_dir, "token_label_vocabulary.bin")
 
     if args.do_train:
-        if args.chinese_zero is True:
-            # TODO: Resolve import error
-            raise ImportError
-            # from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
-            # train_examples = read_chinese_zero_examples(input_file=args.train_file, is_training=True)
-        else:
-            train_examples = read_parsing_examples(
-                input_file=args.train_file, is_training=True,
-                parsing=args.parsing,
-                word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
-                subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-                use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                estimate_dep_label=args.estimate_dep_label, h2z=args.h2z, knp_mode=args.knp_mode,
-                multi_sentences=(not args.single_sentence))
+        train_examples = read_parsing_examples(
+            input_file=args.train_file, is_training=True,
+            parsing=args.parsing,
+            word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+            subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
+            use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
+            estimate_dep_label=args.estimate_dep_label, h2z=args.h2z, knp_mode=args.knp_mode,
+            multi_sentences=(not args.single_sentence))
         if args.use_training_data_ratio is not None:
             num_train_example = int(len(train_examples) * args.use_training_data_ratio)
             train_examples = train_examples[:num_train_example]
@@ -1013,20 +982,12 @@ def main():
             token_label_vocabulary["dep_label"] = TokenLabelVocabulary("dep_label", train_examples)
 
         # Prepare model
-        if args.chinese_zero is True:
-            # TODO: Resolve import error
-            raise ImportError
-            # from pytorch_pretrained_bert.modeling_chinese_zero import BertForChineseZero
-            # model = BertForChineseZero.from_pretrained(
-            #     args.bert_model,
-            #     cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
-        else:
-            model = BertForParsing.from_pretrained(args.bert_model,
-                                                   cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(
-                                                       args.local_rank),
-                                                   token_label_vocabulary=token_label_vocabulary,
-                                                   parsing_algorithm=args.parsing_algorithm,
-                                                   estimate_dep_label=args.estimate_dep_label)
+        model = BertForParsing.from_pretrained(args.bert_model,
+                                               cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(
+                                                   args.local_rank),
+                                               token_label_vocabulary=token_label_vocabulary,
+                                               parsing_algorithm=args.parsing_algorithm,
+                                               estimate_dep_label=args.estimate_dep_label)
 
         # Add special embeddings (special tokens, finetuning_added_tokens)
         if num_expand_vocab > 0:
@@ -1069,26 +1030,16 @@ def main():
                              t_total=t_total)
 
         global_step = 0
-        if args.chinese_zero is True:
-            # TODO: Resolve import error
-            raise ImportError
-            # train_features = convert_examples_to_features_chinese_zero(
-            #     examples=train_examples,
-            #     tokenizer=tokenizer,
-            #     max_seq_length=args.max_seq_length,
-            #     is_training=True,
-            #     logger=logger)
-        else:
-            train_features = convert_examples_to_features(
-                examples=train_examples,
-                tokenizer=tokenizer,
-                max_seq_length=args.max_seq_length,
-                vocab_size=vocab_size,
-                is_training=True,
-                word_segmentation=args.word_segmentation,
-                use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                num_special_tokens=num_special_tokens,
-                special_tokens=special_tokens)
+        train_features = convert_examples_to_features(
+            examples=train_examples,
+            tokenizer=tokenizer,
+            max_seq_length=args.max_seq_length,
+            vocab_size=vocab_size,
+            is_training=True,
+            word_segmentation=args.word_segmentation,
+            use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
+            num_special_tokens=num_special_tokens,
+            special_tokens=special_tokens)
         logger.info("***** Running training *****")
         logger.info("  Num orig examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
@@ -1097,28 +1048,20 @@ def main():
         all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
         all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
 
-        # chinese_zero
-        if args.chinese_zero is True:
-            all_zps = pad_sequence([torch.tensor(f.zps, dtype=torch.long) for f in train_features], batch_first=True,
-                                   padding_value=-1)
-            all_candidates_labels_set = get_all_pad_candidates_labels_set(train_features)
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_zps,
-                                       all_candidates_labels_set)
         # word_segmentation, pos tagging, parsing
-        else:
-            all_heads = torch.tensor([f.heads for f in train_features], dtype=torch.long)
-            if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-                all_token_tags = []
-                for namespace in sorted(token_label_vocabulary.keys()):
-                    all_token_tags.append(
-                        torch.tensor([f.token_tag_indices[namespace] for f in train_features], dtype=torch.long))
-                if args.parsing is True:
-                    train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads,
-                                               *all_token_tags)
-                else:
-                    train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, *all_token_tags)
+        all_heads = torch.tensor([f.heads for f in train_features], dtype=torch.long)
+        if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
+            all_token_tags = []
+            for namespace in sorted(token_label_vocabulary.keys()):
+                all_token_tags.append(
+                    torch.tensor([f.token_tag_indices[namespace] for f in train_features], dtype=torch.long))
+            if args.parsing is True:
+                train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads,
+                                           *all_token_tags)
             else:
-                train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads)
+                train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, *all_token_tags)
+        else:
+            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_heads)
 
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
@@ -1134,29 +1077,25 @@ def main():
                 if n_gpu == 1:
                     batch = tuple(t.to(device) for t in batch)  # multi-gpu does scattering it-self
 
-                if args.chinese_zero is True:
-                    input_ids, input_mask, segment_ids, zps, candidates_labels_set = batch
-                    loss = model(input_ids, segment_ids, input_mask, zps, candidates_labels_set)
-                else:
-                    token_tags = None
-                    if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-                        token_tags = {}
-                        if args.parsing is True:
-                            input_ids, input_mask, segment_ids, heads, *token_tags_array = batch
-                        else:
-                            input_ids, input_mask, segment_ids, *token_tags_array = batch
-                            heads = None
-                        for namespace, _token_tags in zip(sorted(token_label_vocabulary.keys()), token_tags_array):
-                            token_tags[namespace] = _token_tags
+                token_tags = None
+                if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
+                    token_tags = {}
+                    if args.parsing is True:
+                        input_ids, input_mask, segment_ids, heads, *token_tags_array = batch
                     else:
-                        input_ids, input_mask, segment_ids, heads = batch
-                    loss = model(input_ids, segment_ids, input_mask, heads=heads, token_tags=token_tags)
+                        input_ids, input_mask, segment_ids, *token_tags_array = batch
+                        heads = None
+                    for namespace, _token_tags in zip(sorted(token_label_vocabulary.keys()), token_tags_array):
+                        token_tags[namespace] = _token_tags
+                else:
+                    input_ids, input_mask, segment_ids, heads = batch
+                loss = model(input_ids, segment_ids, input_mask, heads=heads, token_tags=token_tags)
                 tr_loss, nb_tr_steps, global_step = update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps,
                                                                       model, optimizer, global_step, param_optimizer)
 
             print("loss {}: {:.3f}".format(i, tr_loss / nb_tr_steps), file=sys.stderr)
 
-            # Save a trained model
+        # Save a trained model
         model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
         torch.save(model_to_save.state_dict(), output_model_file)
         if output_token_label_vocabulary is not None:
@@ -1168,18 +1107,11 @@ def main():
             token_label_vocabulary = torch.load(output_token_label_vocabulary)
         model_state_dict = torch.load(output_model_file,
                                       map_location='cpu' if n_gpu == 0 or args.no_cuda is True else None)
-        if args.chinese_zero is True:
-            # TODO: Resolve import error
-            raise ImportError
-            # from pytorch_pretrained_bert.modeling_chinese_zero import BertForChineseZero
-            # model = BertForChineseZero.from_pretrained(args.bert_model, state_dict=model_state_dict,
-            #                                            num_expand_vocab=num_expand_vocab)
-        else:
-            model = BertForParsing.from_pretrained(args.bert_model, state_dict=model_state_dict,
-                                                   num_expand_vocab=num_expand_vocab,
-                                                   token_label_vocabulary=token_label_vocabulary,
-                                                   parsing_algorithm=args.parsing_algorithm,
-                                                   estimate_dep_label=args.estimate_dep_label)
+        model = BertForParsing.from_pretrained(args.bert_model, state_dict=model_state_dict,
+                                               num_expand_vocab=num_expand_vocab,
+                                               token_label_vocabulary=token_label_vocabulary,
+                                               parsing_algorithm=args.parsing_algorithm,
+                                               estimate_dep_label=args.estimate_dep_label)
         if args.do_train is False and num_finetuning_added_tokens > 0:
             add_vocab(finetuning_added_tokens, tokenizer, model)
 
@@ -1194,49 +1126,33 @@ def main():
 
         # read examples
         while True:
-            if args.chinese_zero is True:
-                # TODO: Resolve import error
-                raise ImportError
-                # from chinese_zero import read_chinese_zero_examples, convert_examples_to_features_chinese_zero
-                # eval_examples = read_chinese_zero_examples(input_file=args.predict_file, is_training=False)
-            else:
-                eval_examples = read_parsing_examples(
-                    input_file=args.predict_file, is_training=False,
-                    parsing=args.parsing,
-                    word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
-                    subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
-                    use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                    use_gold_pos_in_test=args.use_gold_pos_in_test,
-                    h2z=args.h2z, knp_mode=args.knp_mode, multi_sentences=(not args.single_sentence))
-                if len(eval_examples) == 0:
-                    break
+            eval_examples = read_parsing_examples(
+                input_file=args.predict_file, is_training=False,
+                parsing=args.parsing,
+                word_segmentation=args.word_segmentation, pos_tagging=args.pos_tagging,
+                subpos_tagging=args.subpos_tagging, feats_tagging=args.feats_tagging,
+                use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
+                use_gold_pos_in_test=args.use_gold_pos_in_test,
+                h2z=args.h2z, knp_mode=args.knp_mode, multi_sentences=(not args.single_sentence))
+            if len(eval_examples) == 0:
+                break
 
             if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
                 for namespace in token_label_vocabulary:
                     token_label_vocabulary[namespace].add_indices(eval_examples)
 
             # convert examples to features
-            if args.chinese_zero is True:
-                # TODO: Resolve import error
-                raise ImportError
-                # eval_features = convert_examples_to_features_chinese_zero(
-                #     examples=eval_examples,
-                #     tokenizer=tokenizer,
-                #     max_seq_length=args.max_seq_length,
-                #     is_training=False,
-                #     logger=logger)
-            else:
-                eval_features = convert_examples_to_features(
-                    examples=eval_examples,
-                    tokenizer=tokenizer,
-                    max_seq_length=args.max_seq_length,
-                    vocab_size=vocab_size,
-                    is_training=False,
-                    word_segmentation=args.word_segmentation,
-                    use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
-                    num_special_tokens=num_special_tokens,
-                    special_tokens=special_tokens,
-                )
+            eval_features = convert_examples_to_features(
+                examples=eval_examples,
+                tokenizer=tokenizer,
+                max_seq_length=args.max_seq_length,
+                vocab_size=vocab_size,
+                is_training=False,
+                word_segmentation=args.word_segmentation,
+                use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
+                num_special_tokens=num_special_tokens,
+                special_tokens=special_tokens,
+            )
 
             logger.info("***** Running predictions *****")
             logger.info("  Num orig examples = %d", len(eval_examples))
@@ -1246,14 +1162,7 @@ def main():
             all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
             all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
             all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
-            if args.chinese_zero is True:
-                all_zps = pad_sequence([torch.tensor(f.zps, dtype=torch.long) for f in eval_features], batch_first=True,
-                                       padding_value=-1)
-                all_candidates_labels_set = get_all_pad_candidates_labels_set(eval_features)
-                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index, all_zps,
-                                          all_candidates_labels_set)
-            else:
-                eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
+            eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
             if args.local_rank == -1:
                 eval_sampler = SequentialSampler(eval_data)
             else:
@@ -1269,31 +1178,21 @@ def main():
                 input_ids = input_ids.to(device)
                 input_mask = input_mask.to(device)
                 segment_ids = segment_ids.to(device)
-                if args.chinese_zero is True:
-                    all_zps = rests[0].to(device)
-                    all_candidates_labels_set = rests[1].to(device)
 
                 with torch.no_grad():
-                    if args.chinese_zero is True:
-                        ret_dict = model(input_ids, segment_ids, input_mask, all_zps, all_candidates_labels_set,
-                                         is_training=False)
-                    else:
-                        ret_dict = model(input_ids, segment_ids, input_mask)
+                    ret_dict = model(input_ids, segment_ids, input_mask)
                 for i, example_index in enumerate(example_indices):
                     heads, token_tags, topk_heads, topk_dep_labels = None, None, None, None
                     top_spans, antecedent_indices, predicted_antecedents = None, None, None
                     antecedent_labels_set = None
-                    if args.chinese_zero is True:
-                        antecedent_labels_set = ret_dict["antecedent_labels_set"][i].detach().cpu().tolist()
-                    else:
-                        heads = ret_dict["heads"][i].detach().cpu().tolist()
-                        topk_heads = ret_dict["topk_heads"][i].detach().cpu().tolist()
-                        if args.estimate_dep_label is True:
-                            topk_dep_labels = ret_dict["topk_dep_labels"][i].detach().cpu().tolist()
-                        if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
-                            token_tags = {}
-                            for namespace in ret_dict["token_tags"]:
-                                token_tags[namespace] = ret_dict["token_tags"][namespace][i].detach().cpu().tolist()
+                    heads = ret_dict["heads"][i].detach().cpu().tolist()
+                    topk_heads = ret_dict["topk_heads"][i].detach().cpu().tolist()
+                    if args.estimate_dep_label is True:
+                        topk_dep_labels = ret_dict["topk_dep_labels"][i].detach().cpu().tolist()
+                    if args.word_segmentation is True or args.use_gold_segmentation_in_test is True:
+                        token_tags = {}
+                        for namespace in ret_dict["token_tags"]:
+                            token_tags[namespace] = ret_dict["token_tags"][namespace][i].detach().cpu().tolist()
 
                     eval_feature = eval_features[example_index.item()]
                     unique_id = int(eval_feature.unique_id)
@@ -1326,7 +1225,7 @@ def main():
                               token_label_vocabulary=token_label_vocabulary,
                               use_gold_segmentation_in_test=args.use_gold_segmentation_in_test,
                               use_gold_pos_in_test=args.use_gold_pos_in_test,
-                              chinese_zero=args.chinese_zero, knp_mode=args.knp_mode, output_tree=args.output_tree)
+                              knp_mode=args.knp_mode, output_tree=args.output_tree)
             if args.knp_mode is False:
                 break
 
@@ -1413,12 +1312,6 @@ def get_all_pad_candidates_labels_set(features):
         batch_first=True, padding_value=-1)
 
     return all_pad_candidates_labels_set
-
-
-def postprocess_args(args):
-    if args.chinese_zero is True:
-        args.lang = "zh"
-    return args
 
 
 if __name__ == "__main__":
