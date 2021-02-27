@@ -13,7 +13,7 @@ version() {
 VERSION="berknp 0.22"
 BASE_DIR=$(dirname "$0")/..
 echo "$BASE_DIR" | grep -q '^/' &>/dev/null
-if [ $? -ne 0 ]; then
+if [[ $? -ne 0 ]]; then
   BASE_DIR=$(pwd)/$BASE_DIR
 fi
 
@@ -34,7 +34,7 @@ for OPT in "$@"; do
       echo "$0: option requires an argument -- $1" 1>&2
       exit 1
     fi
-    shift 1
+    shift 2
     ;;
   -b)
     if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
@@ -42,7 +42,7 @@ for OPT in "$@"; do
       exit 1
     fi
     BERT_MODEL=$2
-    shift 1
+    shift 2
     ;;
   -m)
     if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
@@ -50,7 +50,7 @@ for OPT in "$@"; do
       exit 1
     fi
     BERT_PARSING_MODEL_DIR=$2
-    shift 1
+    shift 2
     ;;
   -p)
     if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
@@ -58,7 +58,7 @@ for OPT in "$@"; do
       exit 1
     fi
     PYTHON_COMMAND=$2
-    shift 1
+    shift 2
     ;;
   -P)
     if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
@@ -66,7 +66,7 @@ for OPT in "$@"; do
       exit 1
     fi
     BERT_PARSING_COMMAND=$2
-    shift 1
+    shift 2
     ;;
   -o)
     if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
@@ -74,7 +74,7 @@ for OPT in "$@"; do
       exit 1
     fi
     BERT_PARSING_OPTIONS=$2
-    shift 1
+    shift 2
     ;;
   -O)
     if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
@@ -82,13 +82,15 @@ for OPT in "$@"; do
       exit 1
     fi
     BERT_PARSING_OPTIONS_FROM_FILE=$2
-    shift 1
+    shift 2
     ;;
   -tab)
     BERT_PARSING_OUTPUT_OPTIONS=""
+    shift 1
     ;;
   -pyknp)
     BERT_PARSING_OPTIONS="$BERT_PARSING_OPTIONS --single_sentence"
+    shift 1
     ;;
   -f)
     # input format ("conll", "lattice", "knp", or "text"), default: "lattice"
@@ -97,7 +99,7 @@ for OPT in "$@"; do
       exit 1
     fi
     PARSING_INPUT_FORMAT="$2"
-    shift 1
+    shift 2
     ;;
   -v | -version)
     version
@@ -108,11 +110,12 @@ for OPT in "$@"; do
   -*)
     usage
     ;;
+  *)
+    ;;
   esac
-  shift 1
 done
 
-if [ -n "$BERT_PARSING_OPTIONS_FROM_FILE" -a -f "$BERT_PARSING_OPTIONS_FROM_FILE" ]; then
+if [[ -f "$BERT_PARSING_OPTIONS_FROM_FILE" ]]; then
   BERT_PARSING_OPTIONS=$(cat "$BERT_PARSING_OPTIONS_FROM_FILE")
 fi
 
