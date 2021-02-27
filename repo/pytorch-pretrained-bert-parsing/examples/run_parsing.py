@@ -604,14 +604,12 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
         writer.flush()
     else:
         writer = open(output_prediction_file, "w", encoding="utf-8")
-        for (example_index, example) in enumerate(all_examples):
-            feature = all_features[example_index]
-            result = all_results[example_index]
+        for example, feature, result in zip(all_examples, all_features, all_results):
             if example.comment is not None:
                 writer.write("{}\n".format(example.comment))
 
             if word_segmentation is True or use_gold_segmentation_in_test is True or use_gold_pos_in_test is True:
-                write_predictions_word_segmentation(example, result, feature, example_index, writer, max_seq_length,
+                write_predictions_word_segmentation(example, result, feature, writer, max_seq_length,
                                                     token_label_vocabulary=token_label_vocabulary,
                                                     parsing=parsing,
                                                     pos_tagging=pos_tagging, subpos_tagging=subpos_tagging,
@@ -623,7 +621,7 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
                 for line_num, line in enumerate(example.lines):
                     items = line.split("\t")
                     # 1 for [CLS]
-                    pred_head_id = result.heads[all_features[example_index].orig_to_tok_index[line_num] + 1]
+                    pred_head_id = result.heads[feature.orig_to_tok_index[line_num] + 1]
                     # ROOT
                     if pred_head_id == max_seq_length - 1:
                         pred_head_id = 0
@@ -645,7 +643,7 @@ class Word(object):
         self.parent_word_index = None
 
 
-def write_predictions_word_segmentation(example, result, feature, example_index, writer, max_seq_length,
+def write_predictions_word_segmentation(example, result, feature, writer, max_seq_length,
                                         token_label_vocabulary=None, parsing=False, pos_tagging=False,
                                         subpos_tagging=False, feats_tagging=False,
                                         estimate_dep_label=False, use_gold_segmentation_in_test=False,
@@ -1157,7 +1155,7 @@ def main():
             all_input_ids = torch.tensor([f.input_ids for f in eval_features], dtype=torch.long)
             all_input_mask = torch.tensor([f.input_mask for f in eval_features], dtype=torch.long)
             all_segment_ids = torch.tensor([f.segment_ids for f in eval_features], dtype=torch.long)
-            all_example_index = torch.arange(all_input_ids.size(0), dtype=torch.long)
+            all_example_index = torch.arange(all_input_ids.size()[0], dtype=torch.long)
             eval_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_example_index)
             if args.local_rank == -1:
                 eval_sampler = SequentialSampler(eval_data)
