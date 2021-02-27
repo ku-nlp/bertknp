@@ -519,9 +519,9 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
             # add predicate-argument structures by KNP
             knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
             if output_tree:
-                print(sprint_tag_tree(knp_result_new))
+                sys.stdout.write(sprint_tag_tree(knp_result_new))
             else:
-                print(knp_result_new.all())
+                sys.stdout.write(knp_result_new.all())
     else:
         with open(output_prediction_file, "w", encoding="utf-8") as writer:
             for example, feature, result in zip(all_examples, all_features, all_results):
