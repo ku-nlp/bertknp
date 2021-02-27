@@ -30,8 +30,8 @@ from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from pytorch_pretrained_bert.modeling import BertForParsing
 from pytorch_pretrained_bert.optimization import BertAdam
 from pytorch_pretrained_bert.tokenization import BertTokenizer
-from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import TensorDataset, RandomSampler, SequentialSampler
+from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm, trange
 
@@ -978,24 +978,6 @@ def update_parameters(args, loss, n_gpu, tr_loss, step, nb_tr_steps, model, opti
         global_step += 1
 
     return tr_loss, nb_tr_steps, global_step
-
-
-def get_all_pad_candidates_labels_set(features):
-    padded_candidate_label_sets = []
-    for i, f in enumerate(features):
-        padded_candidate_label_sets.append(pad_sequence(
-            [torch.tensor(candidates_labels_set, dtype=torch.long) for candidates_labels_set in
-             f.candidates_labels_set],
-            batch_first=True, padding_value=-1))
-
-    max_candidates_num = max([candidate_sets.size(1) for candidate_sets in padded_candidate_label_sets])
-
-    all_pad_candidates_labels_set = pad_sequence([torch.cat(
-        [s, torch.zeros(s.size(0), max_candidates_num - s.size(1), s.size(2), dtype=torch.long).fill_(-1)], dim=1) for s
-        in padded_candidate_label_sets],
-        batch_first=True, padding_value=-1)
-
-    return all_pad_candidates_labels_set
 
 
 if __name__ == "__main__":
