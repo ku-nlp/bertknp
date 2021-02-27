@@ -237,6 +237,7 @@ def get_pos(pos, spos):
 
 
 def jpp2conll_one_sentence(buf):
+    """convert Juman++'s lattice format to conll format"""
     output_lines = []
     prev_id = 0
     for line in buf.splitlines():
@@ -272,29 +273,36 @@ def jpp2conll_one_sentence(buf):
     return ''.join(output_lines) + '\n'
 
 
-def read_parsing_examples(input_file, is_training,
-                          h2z=False, knp_mode=False, multi_sentences=True):
-    """Read a file into a list of ParsingExample."""
-    buf_conll = ''
-    if knp_mode is True:
-        # convert Juman++ (-s 1) to CoNLL
-        buf = ''
-        for line in sys.stdin:
-            buf += line
-            if line.strip() == 'EOS':
-                buf_conll += jpp2conll_one_sentence(buf)
-                buf = ''
-                if multi_sentences is False:
-                    break
-    else:
-        with open(input_file, encoding='utf-8') as f:
-            for line in f:
-                buf_conll += line
+def read_parsing_examples(reader, input_format, is_training, h2z=False, multi_sentences=True):
+    """Read a file into a list of ParsingExample.
+    Args:
+        reader (io.TextIO): input text stream
+        input_format (str): format of input string ("lattice", "knp", "conll", or "text")
+        is_training (bool): training mode or not
+        h2z (bool): convert hankaku to ｚｅｎｋａｋｕ or not
+        multi_sentences (bool): input string includes multiple sentences or not
+    """
+    assert input_format in ('lattice', 'knp', 'conll'), f'{input_format} format is not supported'
+    buff_conll = ''
+    buff = ''
+    for line in reader:
+        buff += line
+        if line.strip() == 'EOS':
+            if input_format == 'lattice':
+                buff_conll += jpp2conll_one_sentence(buff)
+            # elif input_format == 'knp':
+            #     buff_conll += knp2conll_one_sentence(buff)
+            else:
+                assert input_format == 'conll'
+                buff_conll += buff
+            buff = ''
+            if multi_sentences is False:
+                break
 
-    if not buf_conll:
+    if not buff_conll:
         return []
 
-    return read_parsing_examples_from_buf(buf_conll, is_training, h2z)
+    return read_parsing_examples_from_buf(buff_conll, is_training, h2z)
 
 
 def read_parsing_examples_from_buf(buf, is_training, h2z=False):
@@ -628,6 +636,8 @@ def main():
     parser.add_argument("--h2z", default=False, action='store_true', help="Hankaku to Zenkaku.")
     parser.add_argument("--knp_mode", default=False, action='store_true',
                         help="KNP mode (stdin: jumanpp -s 1, stdout: KNP format.")
+    parser.add_argument("--input_format", choices=['conll', 'lattice', 'knp', 'text'], default='conll', type=str,
+                        help="Format of input string.")
     parser.add_argument("--output_tree", default=False, action='store_true', help="Output trees.")
     parser.add_argument("--pos_list", default=None, type=str,
                         help="Specify a pos.list file to convert a Juman++ file to CoNLL.")
@@ -692,9 +702,12 @@ def main():
     token_label_vocabulary = {}
 
     if args.do_train:
-        train_examples = read_parsing_examples(
-            input_file=args.train_file, is_training=True, h2z=args.h2z, knp_mode=args.knp_mode,
-            multi_sentences=(not args.single_sentence))
+        with open(args.train_file, encoding='utf-8') as reader:
+            train_examples = read_parsing_examples(reader,
+                                                   input_format=args.input_format,
+                                                   is_training=True,
+                                                   h2z=args.h2z,
+                                                   multi_sentences=(not args.single_sentence))
         if args.use_training_data_ratio is not None:
             num_train_example = int(len(train_examples) * args.use_training_data_ratio)
             train_examples = train_examples[:num_train_example]
@@ -827,9 +840,14 @@ def main():
 
         # read examples
         while True:
-            eval_examples = read_parsing_examples(
-                input_file=args.predict_file, is_training=False, h2z=args.h2z, knp_mode=args.knp_mode,
-                multi_sentences=(not args.single_sentence))
+            reader = open(args.predict_file, encoding='utf-8') if args.knp_mode is False else sys.stdin
+            eval_examples = read_parsing_examples(reader,
+                                                  input_format=args.input_format,
+                                                  is_training=False,
+                                                  h2z=args.h2z,
+                                                  multi_sentences=(not args.single_sentence))
+            if reader is not sys.stdin:
+                reader.close()
             if len(eval_examples) == 0:
                 break
 

@@ -21,7 +21,7 @@ BERT_PARSING_COMMAND=$BASE_DIR/repo/pytorch-pretrained-bert-parsing/examples/run
 BERT_MODEL=$BASE_DIR/pretrained_model
 BERT_PARSING_MODEL_DIR=$BASE_DIR/model/latest
 POS_LIST=$BASE_DIR/repo/pytorch-pretrained-bert-parsing/examples/pos.list
-BERT_PARSING_OPTIONS="--max_seq_length 192 --prediction_result_filename - --do_predict --parsing --pos_list $POS_LIST --knp_mode"
+BERT_PARSING_OPTIONS="--max_seq_length 192 --prediction_result_filename - --do_predict --parsing --pos_list $POS_LIST --knp_mode --input_format lattice"
 BERT_PARSING_OUTPUT_OPTIONS="--output_tree"
 
 PYTHON_COMMAND=python3
