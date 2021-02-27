@@ -136,11 +136,7 @@ def get_head_ids_types(example, feature, result, max_seq_length):
 
 
 def get_sentence_str(example):
-    sentence_str = ''
-    for line_num, line in enumerate(example.lines):
-        items = line.split("\t")
-        sentence_str += items[1]
-    return sentence_str
+    return ''.join(line.split('\t')[1] for line in example.lines)
 
 
 def modify_knp_for_tag_or_bunsetsu(tags, head_ids, dpnd_types, mode):
@@ -651,8 +647,8 @@ def main():
         # read the pos_list file is specified
         if args.pos_list:
             read_pos_list(args.pos_list)
-        knp_dpnd = KNP(option="-tab -disable-segmentation-modification -dpnd-fast")
-        knp_case = KNP(option="-tab -disable-segmentation-modification -case2")
+        knp_dpnd = KNP(option="-tab -disable-segmentation-modification -dpnd-fast")  # 係り受け解析のみ行い格解析は行わない
+        knp_case = KNP(option="-tab -disable-segmentation-modification -case2")  # 与えられた係り受けから格解析を行う
     else:
         knp_dpnd = None
         knp_case = None
