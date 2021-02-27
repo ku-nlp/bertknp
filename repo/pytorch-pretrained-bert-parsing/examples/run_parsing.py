@@ -334,7 +334,7 @@ def read_parsing_examples(reader, input_format, is_training, h2z=False, multi_se
         h2z (bool): convert hankaku to ｚｅｎｋａｋｕ or not
         multi_sentences (bool): input string includes multiple sentences or not
     """
-    assert input_format in ('lattice', 'knp', 'conll'), f'{input_format} format is not supported'
+    assert input_format in ('lattice', 'knp', 'conll'), 'format: "{}" is not supported'.format(input_format)
     buff_conll = ''
     buff = ''
     for line in reader:
