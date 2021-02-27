@@ -53,6 +53,15 @@ knp = KNP('path/to/bin/bertknp', option='-p /path/to/venv/for/bertknp/bin/python
 knp.parse('昨日訪れた下鴨神社の参道はかなり暗かった。')  # returns pyknp.BList
 ```
 
+### Reparse KNP file
+
+You can modify dependency labels that assigned by KNP.
+
+```bash
+$ echo "昨日訪れた下鴨神社の参道はかなり暗かった。" | jumanpp | knp -tab > parsed.knp
+$ cat parsed.knp | bin/bertknp -f knp
+```
+
 ## References
 
 柴田知秀, 河原大輔, 黒橋禎夫: BERTによる日本語構文解析の精度向上, 言語処理学会 第25回年次大会, pp.205-208, 名古屋, (2019.3).
