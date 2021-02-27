@@ -54,7 +54,6 @@ class ParsingExample(object):
                  lines,
                  heads=None,
                  token_tags=None,
-                 gold_words=None,
                  comment=None,
                  h2z=False):
         self.example_id = example_id
@@ -63,7 +62,6 @@ class ParsingExample(object):
         self.heads = heads
         self.token_tags = token_tags
         self.token_tag_indices = defaultdict(list)
-        self.gold_words = gold_words
         self.comment = comment
         self.h2z = h2z
 
@@ -322,7 +320,6 @@ def read_parsing_examples_from_buf(buf, is_training, h2z=False):
                 heads=heads,
                 token_tags=token_tags,
                 comment=comment,
-                gold_words=None,
                 h2z=h2z)
             examples.append(example)
 
@@ -626,10 +623,6 @@ def main():
     parser.add_argument("--parsing_algorithm", choices=["biaffine", "zhang"], default="zhang",
                         help="biaffine [Dozat+ 17] or zhang [Zhang+ 16]")
     parser.add_argument("--estimate_dep_label", default=False, action='store_true', help="Estimate dependency labels.")
-    parser.add_argument("--num_max_text_length",
-                        type=int,
-                        default=None,
-                        help="Maximum number of text length")
     parser.add_argument("--use_training_data_ratio", default=None, type=float, help="Used training data ratio.")
     parser.add_argument("--lang", default="ja", type=str, help="Language.")
     parser.add_argument("--h2z", default=False, action='store_true', help="Hankaku to Zenkaku.")
