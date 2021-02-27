@@ -52,6 +52,7 @@ class ParsingExample(object):
                  example_id,
                  words,
                  lines,
+                 knp_string=None,
                  heads=None,
                  token_tags=None,
                  comment=None,
@@ -59,6 +60,7 @@ class ParsingExample(object):
         self.example_id = example_id
         self.words = words
         self.lines = lines
+        self.knp_string = knp_string
         self.heads = heads
         self.token_tags = token_tags
         self.token_tag_indices = defaultdict(list)
@@ -319,6 +321,7 @@ def read_parsing_examples(reader, input_format, is_training, h2z=False, multi_se
     """
     assert input_format in ('lattice', 'knp', 'conll'), 'format: "{}" is not supported'.format(input_format)
     buff_conll = ''
+    buff_knps = []
     buff = ''
     for line in reader:
         buff += line
@@ -327,6 +330,7 @@ def read_parsing_examples(reader, input_format, is_training, h2z=False, multi_se
                 buff_conll += jpp2conll_one_sentence(buff)
             elif input_format == 'knp':
                 buff_conll += knp2conll_one_sentence(buff)
+                buff_knps.append(buff)
             else:
                 assert input_format == 'conll'
                 buff_conll += buff
@@ -337,10 +341,10 @@ def read_parsing_examples(reader, input_format, is_training, h2z=False, multi_se
     if not buff_conll:
         return []
 
-    return read_parsing_examples_from_buf(buff_conll, is_training, h2z)
+    return read_parsing_examples_from_buf(buff_conll, buff_knps, is_training, h2z)
 
 
-def read_parsing_examples_from_buf(buf, is_training, h2z=False):
+def read_parsing_examples_from_buf(buff, buff_knps, is_training, h2z=False):
     """Read a buffer into a list of ParsingExample."""
 
     examples = []
@@ -350,7 +354,7 @@ def read_parsing_examples_from_buf(buf, is_training, h2z=False):
     words, heads, lines, word_to_char_index = [], [], [], []
     token_tags = defaultdict(list)
     comment = None
-    for line in buf.splitlines():
+    for line in buff.splitlines():
         line = line.strip()
         if line.startswith("#") is True:
             comment = line
@@ -360,6 +364,7 @@ def read_parsing_examples_from_buf(buf, is_training, h2z=False):
                 example_id,
                 words,
                 lines,
+                knp_string=buff_knps[example_id] if buff_knps else None,
                 heads=heads,
                 token_tags=token_tags,
                 comment=comment,
@@ -511,7 +516,11 @@ def write_predictions(all_examples, all_features, all_results, output_prediction
 
     if knp_mode:
         for example, feature, result in zip(all_examples, all_features, all_results):
-            knp_result = knp_dpnd.parse(get_sentence_str(example))
+            if example.knp_string is not None:
+                # reuse input knp string as much as possible
+                knp_result = knp_dpnd.reparse_knp_result(example.knp_string.strip())
+            else:
+                knp_result = knp_dpnd.parse(get_sentence_str(example))
             knp_result.comment = example.comment
             head_ids, dpnd_types = get_head_ids_types(example, feature, result, max_seq_length)
             modify_knp(knp_result, head_ids, dpnd_types)

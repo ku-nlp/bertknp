@@ -56,6 +56,7 @@ knp.parse('昨日訪れた下鴨神社の参道はかなり暗かった。')  # 
 ### Reparse KNP file
 
 You can modify dependency labels that assigned by KNP.
+Tag and bnst segmentation is kept.
 
 ```bash
 $ echo "昨日訪れた下鴨神社の参道はかなり暗かった。" | jumanpp | knp -tab > parsed.knp
