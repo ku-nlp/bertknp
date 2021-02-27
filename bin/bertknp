@@ -21,8 +21,9 @@ BERT_PARSING_COMMAND=$BASE_DIR/repo/pytorch-pretrained-bert-parsing/examples/run
 BERT_MODEL=$BASE_DIR/pretrained_model
 BERT_PARSING_MODEL_DIR=$BASE_DIR/model/latest
 POS_LIST=$BASE_DIR/repo/pytorch-pretrained-bert-parsing/examples/pos.list
-BERT_PARSING_OPTIONS="--max_seq_length 192 --prediction_result_filename - --do_predict --parsing --pos_list $POS_LIST --knp_mode --input_format lattice"
+BERT_PARSING_OPTIONS="--max_seq_length 192 --prediction_result_filename - --do_predict --parsing --pos_list $POS_LIST --knp_mode"
 BERT_PARSING_OUTPUT_OPTIONS="--output_tree"
+PARSING_INPUT_FORMAT="lattice"
 
 PYTHON_COMMAND=python3
 
@@ -89,6 +90,15 @@ for OPT in "$@"; do
   -pyknp)
     BERT_PARSING_OPTIONS="$BERT_PARSING_OPTIONS --single_sentence"
     ;;
+  -f)
+    # input format ("conll", "lattice", "knp", or "text"), default: "lattice"
+    if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
+      echo "$0: option requires an argument -- $1" 1>&2
+      exit 1
+    fi
+    PARSING_INPUT_FORMAT="$2"
+    shift 1
+    ;;
   -v | -version)
     version
     ;;
@@ -105,5 +115,7 @@ done
 if [ -n "$BERT_PARSING_OPTIONS_FROM_FILE" -a -f "$BERT_PARSING_OPTIONS_FROM_FILE" ]; then
   BERT_PARSING_OPTIONS=$(cat "$BERT_PARSING_OPTIONS_FROM_FILE")
 fi
+
+BERT_PARSING_OPTIONS="$BERT_PARSING_OPTIONS --input_format $PARSING_INPUT_FORMAT"
 
 $PYTHON_COMMAND "$BERT_PARSING_COMMAND" --bert_model "$BERT_MODEL" --output_dir "$BERT_PARSING_MODEL_DIR" $BERT_PARSING_OPTIONS $BERT_PARSING_OUTPUT_OPTIONS

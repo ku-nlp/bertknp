@@ -236,14 +236,21 @@ def get_pos(pos, spos):
         assert 'Unknown POS'
 
 
-def jpp2conll_one_sentence(buf):
-    """convert Juman++'s lattice format to conll format"""
+def jpp2conll_one_sentence(buff):
+    """convert Juman++'s format to conll format
+    Args:
+        buff (str): Juman++'s lattice string
+
+    Note:
+        fields of conll format (https://universaldependencies.org/format.html):
+        index (1-origin), form, lemma, upos, xposs, feats, head, deprel, deps, misc
+    """
     output_lines = []
     prev_id = 0
-    for line in buf.splitlines():
+    for line in buff.splitlines():
         # comment line
         if line.startswith("#"):
-            output_lines.append(line + '\n')
+            output_lines.append(line)
             continue
         result = []
         if line.startswith('EOS'):
@@ -269,8 +276,53 @@ def jpp2conll_one_sentence(buf):
             result.append('D')  # dpnd_type (dummy)
         result.append('_')
         result.append('_')
-        output_lines.append('\t'.join(result) + '\n')
-    return ''.join(output_lines) + '\n'
+        output_lines.append('\t'.join(result))
+    return '\n'.join(output_lines) + '\n\n'  # conll format ends with empty line
+
+
+def knp2conll_one_sentence(buff):
+    """convert KNP format to conll format
+    Args:
+        buff (str): knp string
+
+    Note:
+        fields of conll format (https://universaldependencies.org/format.html):
+        index (1-origin), form, lemma, upos, xposs, feats, head, deprel, deps, misc
+    """
+    output_lines = []
+    idx = 1
+    for line in buff.split('\n'):
+        if line.strip() == '':
+            continue
+        # comment line
+        if line.startswith("#"):
+            output_lines.append(line)
+            continue
+        # bnst or tag line
+        if line.startswith("*") or line.startswith("+"):
+            continue
+        if line.startswith(';;'):
+            raise Exception('Error: ' + line)
+        if line.startswith('EOS'):
+            break
+        result = []
+        # 入力形態素 読み 原型 品詞 品詞ID 品詞細分類 細分類ID 活用型 活用型ID 活用形 活用形ID その他の情報
+        items = line.strip().split(' ')
+
+        result.append(str(idx))
+        result.append(items[0])  # midasi
+        result.append(items[2])  # genkei
+        conll_pos = get_pos(items[3], items[5])  # hinsi, bunrui
+        result.append(conll_pos)
+        result.append(conll_pos)
+        result.append('_')
+        result.append('0')  # head
+        result.append('D')  # dpnd_type (dummy)
+        result.append('_')
+        result.append('_')
+        output_lines.append('\t'.join(result))
+        idx += 1
+    return '\n'.join(output_lines) + '\n\n'  # conll format ends with empty line
 
 
 def read_parsing_examples(reader, input_format, is_training, h2z=False, multi_sentences=True):
@@ -290,8 +342,8 @@ def read_parsing_examples(reader, input_format, is_training, h2z=False, multi_se
         if line.strip() == 'EOS':
             if input_format == 'lattice':
                 buff_conll += jpp2conll_one_sentence(buff)
-            # elif input_format == 'knp':
-            #     buff_conll += knp2conll_one_sentence(buff)
+            elif input_format == 'knp':
+                buff_conll += knp2conll_one_sentence(buff)
             else:
                 assert input_format == 'conll'
                 buff_conll += buff
