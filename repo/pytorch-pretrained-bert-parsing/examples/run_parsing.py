@@ -197,23 +197,6 @@ def sprint_tag_tree(knp_result):
     return tlist.sprint_tree()
 
 
-def write_knp_result_from_conllu(knp_dpnd, knp_case, all_examples, all_features, all_results, writer, max_seq_length,
-                                 output_tree=False):
-    # convert a result to KNP format
-    for examples, features, results in zip(all_examples, all_features, all_results):
-        knp_result = knp_dpnd.parse(get_sentence_str(examples))
-        knp_result.comment = examples.comment
-        head_ids, dpnd_types = get_head_ids_types(examples, features, results, max_seq_length)
-        modify_knp(knp_result, head_ids, dpnd_types)
-
-        # add predicate-argument structures by KNP
-        knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
-        if output_tree:
-            writer.write(sprint_tag_tree(knp_result_new))
-        else:
-            writer.write(knp_result_new.all())
-
-
 def read_pos_list(pos_list_file):
     with open(pos_list_file, encoding='utf-8') as poslist:
         for line in poslist:
@@ -521,38 +504,43 @@ RawResult = namedtuple("RawResult",
 
 
 def write_predictions(all_examples, all_features, all_results, output_prediction_file, max_seq_length, knp_dpnd,
-                      knp_case,
-                      knp_mode=False, output_tree=False):
-    """Write final predictions to the file."""
+                      knp_case, knp_mode, output_tree):
+    """Write final predictions to the file or stdout."""
     if output_prediction_file is not None:
-        logger.info("Writing predictions to: %s" % output_prediction_file)
+        logger.info("Writing predictions to: {}".format(output_prediction_file))
 
     if knp_mode:
-        writer = sys.stdout
-        write_knp_result_from_conllu(knp_dpnd, knp_case, all_examples, all_features, all_results, writer,
-                                     max_seq_length, output_tree)
-        writer.flush()
-    else:
-        writer = open(output_prediction_file, "w", encoding="utf-8")
         for example, feature, result in zip(all_examples, all_features, all_results):
-            if example.comment is not None:
-                writer.write("{}\n".format(example.comment))
+            knp_result = knp_dpnd.parse(get_sentence_str(example))
+            knp_result.comment = example.comment
+            head_ids, dpnd_types = get_head_ids_types(example, feature, result, max_seq_length)
+            modify_knp(knp_result, head_ids, dpnd_types)
 
-            for line_num, line in enumerate(example.lines):
-                items = line.split("\t")
-                # 1 for [CLS]
-                pred_head_id = result.heads[feature.orig_to_tok_index[line_num] + 1]
-                # ROOT
-                if pred_head_id == max_seq_length - 1:
-                    pred_head_id = 0
-                else:
-                    pred_head_id = feature.tok_to_orig_index[pred_head_id - 1] + 1
+            # add predicate-argument structures by KNP
+            knp_result_new = knp_case.reparse_knp_result(knp_result.all().strip())
+            if output_tree:
+                print(sprint_tag_tree(knp_result_new))
+            else:
+                print(knp_result_new.all())
+    else:
+        with open(output_prediction_file, "w", encoding="utf-8") as writer:
+            for example, feature, result in zip(all_examples, all_features, all_results):
+                if example.comment is not None:
+                    writer.write("{}\n".format(example.comment))
 
-                items[6] = str(pred_head_id)
-                writer.write("{}\n".format("\t".join(items)))
+                for line_num, line in enumerate(example.lines):
+                    items = line.split("\t")
+                    # 1 for [CLS]
+                    pred_head_id = result.heads[feature.orig_to_tok_index[line_num] + 1]
+                    # ROOT
+                    if pred_head_id == max_seq_length - 1:
+                        pred_head_id = 0
+                    else:
+                        pred_head_id = feature.tok_to_orig_index[pred_head_id - 1] + 1
 
-            writer.write("\n")
-        writer.close()
+                    items[6] = str(pred_head_id)
+                    writer.write("\t".join(items) + "\n")
+                writer.write("\n")
 
 
 class Word(object):
@@ -966,8 +954,8 @@ def main():
             else:
                 output_prediction_file = os.path.join(args.output_dir, args.prediction_result_filename)
 
-            write_predictions(eval_examples, eval_features, all_results, output_prediction_file,
-                              args.max_seq_length, knp_dpnd, knp_case,
+            write_predictions(eval_examples, eval_features, all_results, output_prediction_file, args.max_seq_length,
+                              knp_dpnd, knp_case,
                               knp_mode=args.knp_mode, output_tree=args.output_tree)
             if args.knp_mode is False:
                 break
