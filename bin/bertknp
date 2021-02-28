@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 usage() {
-  echo "Usage: echo sentence | $0 [-v] [-b BERT_MODEL] [-m BERT_PARSING_MODEL_DIR] [-P BERT_PARSING_COMMAND] [-o BERT_PARSING_OPTIONS] [-O BERT_PARSING_OPTIONS_FROM_FILE] [-p PYTHON_COMMAND] [-tab] [-pyknp]"
+  echo "Usage: echo sentence | $0 [-v] [-b BERT_MODEL] [-m BERT_PARSING_MODEL_DIR] [-P BERT_PARSING_COMMAND] [-o BERT_PARSING_OPTIONS] [-O BERT_PARSING_OPTIONS_FROM_FILE] [-p PYTHON_COMMAND] [-f PARSING_INPUT_FORMAT] [-tab] [-pyknp]"
   exit 1
 }
 
@@ -21,7 +21,7 @@ BERT_PARSING_COMMAND=$BASE_DIR/repo/pytorch-pretrained-bert-parsing/examples/run
 BERT_MODEL=$BASE_DIR/pretrained_model
 BERT_PARSING_MODEL_DIR=$BASE_DIR/model/latest
 POS_LIST=$BASE_DIR/repo/pytorch-pretrained-bert-parsing/examples/pos.list
-BERT_PARSING_OPTIONS="--max_seq_length 192 --prediction_result_filename - --do_predict --parsing --pos_list $POS_LIST --knp_mode"
+BERT_PARSING_OPTIONS="--max_seq_length 192 --prediction_result_filename - --do_predict --parsing --knp_mode"
 BERT_PARSING_OUTPUT_OPTIONS="--output_tree"
 PARSING_INPUT_FORMAT="lattice"
 
@@ -115,10 +115,10 @@ for OPT in "$@"; do
   esac
 done
 
+BERT_PARSING_OPTIONS="$BERT_PARSING_OPTIONS --input_format $PARSING_INPUT_FORMAT"
+
 if [[ -f "$BERT_PARSING_OPTIONS_FROM_FILE" ]]; then
   BERT_PARSING_OPTIONS=$(cat "$BERT_PARSING_OPTIONS_FROM_FILE")
 fi
 
-BERT_PARSING_OPTIONS="$BERT_PARSING_OPTIONS --input_format $PARSING_INPUT_FORMAT"
-
-$PYTHON_COMMAND "$BERT_PARSING_COMMAND" --bert_model "$BERT_MODEL" --output_dir "$BERT_PARSING_MODEL_DIR" $BERT_PARSING_OPTIONS $BERT_PARSING_OUTPUT_OPTIONS
+$PYTHON_COMMAND "$BERT_PARSING_COMMAND" --bert_model "$BERT_MODEL" --output_dir "$BERT_PARSING_MODEL_DIR" --pos_list $POS_LIST $BERT_PARSING_OPTIONS $BERT_PARSING_OUTPUT_OPTIONS
