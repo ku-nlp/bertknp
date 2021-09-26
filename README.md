@@ -21,12 +21,11 @@ Install the following tools beforehand.
     ```
     Instead of this script, you can do the following commands step by step.
     ```bash
-    $ wget 'http://nlp.ist.i.kyoto-u.ac.jp/DLcounter/lime.cgi?down=http://lotus.kuee.kyoto-u.ac.jp/nl-resource/JapaneseBertPretrainedModel/Japanese_L-12_H-768_A-12_E-30_BPE_WWM_transformers.zip&name=Japanese_L-12_H-768_A-12_E-30_BPE_WWM_transformers.zip'
+    $ wget 'http://nlp.ist.i.kyoto-u.ac.jp/DLcounter/lime.cgi?down=http://lotus.kuee.kyoto-u.ac.jp/nl-resource/JapaneseBertPretrainedModel/Japanese_L-12_H-768_A-12_E-30_BPE_WWM_transformers.zip' -O Japanese_L-12_H-768_A-12_E-30_BPE_WWM_transformers.zip
     $ unzip Japanese_L-12_H-768_A-12_E-30_BPE_WWM_transformers.zip
     $ ln -s Japanese_L-12_H-768_A-12_E-30_BPE_WWM_transformers pretrained_model
     $ ( cd pretrained_model && ln -s config.json bert_config.json )
-    $ wget http://lotus.kuee.kyoto-u.ac.jp/nl-resource/bertknp/model/bertknp-model-20190901.tar.gz
-    $ tar zxvf bertknp-model-20190901.tar.gz
+    $ wget http://lotus.kuee.kyoto-u.ac.jp/nl-resource/bertknp/model/bertknp-model-20190901.tar.gz -O - | tar xzv
     ```
 
 ## How to use
