@@ -24,6 +24,7 @@ POS_LIST=$BASE_DIR/repo/pytorch-pretrained-bert-parsing/examples/pos.list
 BERT_PARSING_OPTIONS="--max_seq_length 192 --prediction_result_filename - --do_predict --parsing --knp_mode"
 BERT_PARSING_OUTPUT_OPTIONS="--output_tree"
 PARSING_INPUT_FORMAT="lattice"
+VERBOSITY=0
 
 PYTHON_COMMAND=python3
 
@@ -101,7 +102,11 @@ for OPT in "$@"; do
     PARSING_INPUT_FORMAT="$2"
     shift 2
     ;;
-  -v | -version | --version)
+  -v | --verbose)
+    VERBOSITY=$((${VERBOSITY} + 1))
+    shift 1
+    ;;
+  -V | -version | --version)
     version
     ;;
   -h | -help | --help)
@@ -121,4 +126,8 @@ if [[ -f "$BERT_PARSING_OPTIONS_FROM_FILE" ]]; then
   BERT_PARSING_OPTIONS=$(cat "$BERT_PARSING_OPTIONS_FROM_FILE")
 fi
 
-$PYTHON_COMMAND "$BERT_PARSING_COMMAND" --bert_model "$BERT_MODEL" --output_dir "$BERT_PARSING_MODEL_DIR" --pos_list $POS_LIST $BERT_PARSING_OPTIONS $BERT_PARSING_OUTPUT_OPTIONS
+if [[ ${VERBOSITY} -gt 0 ]]; then
+  $PYTHON_COMMAND "$BERT_PARSING_COMMAND" --bert_model "$BERT_MODEL" --output_dir "$BERT_PARSING_MODEL_DIR" --pos_list $POS_LIST $BERT_PARSING_OPTIONS $BERT_PARSING_OUTPUT_OPTIONS
+else
+  $PYTHON_COMMAND "$BERT_PARSING_COMMAND" --bert_model "$BERT_MODEL" --output_dir "$BERT_PARSING_MODEL_DIR" --pos_list $POS_LIST $BERT_PARSING_OPTIONS $BERT_PARSING_OUTPUT_OPTIONS 2> /dev/null
+fi
