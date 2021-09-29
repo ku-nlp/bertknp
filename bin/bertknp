@@ -88,7 +88,7 @@ for OPT in "$@"; do
     BERT_PARSING_OUTPUT_OPTIONS=""
     shift 1
     ;;
-  -pyknp)
+  -pyknp | --pyknp)
     BERT_PARSING_OPTIONS="$BERT_PARSING_OPTIONS --single_sentence"
     shift 1
     ;;
@@ -101,10 +101,10 @@ for OPT in "$@"; do
     PARSING_INPUT_FORMAT="$2"
     shift 2
     ;;
-  -v | -version)
+  -v | -version | --version)
     version
     ;;
-  -h | -help)
+  -h | -help | --help)
     usage
     ;;
   -*)
