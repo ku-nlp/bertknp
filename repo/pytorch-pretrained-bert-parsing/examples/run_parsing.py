@@ -968,6 +968,7 @@ def main():
                               knp_mode=args.knp_mode, output_tree=args.output_tree)
             if args.knp_mode is False:
                 break
+            sys.stdout.flush()
 
 
 def preprocess_vocab(tokenizer, args):
